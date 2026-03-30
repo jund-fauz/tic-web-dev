@@ -36,6 +36,8 @@ import { decapitalize } from '@/lib/capitalize'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 
+import { logout } from './logout';
+
 export default function Preferences() {
 	const [preferences, _setPreferences] = useState<any>(
 		typeof window !== 'undefined' && localStorage
@@ -94,6 +96,11 @@ export default function Preferences() {
 			className='min-h-screen bg-linear-to-br from-emerald-50 via-blue-50 to-purple-50 py-6 sm:py-12 px-4 sm:px-6 lg:px-8'
 		>
 			<div className='max-w-2xl mx-auto'>
+				<div className="flex justify-end">
+					<form action={logout}>
+						<Button type="submit">Logout</Button>
+					</form>
+				</div>
 				<FieldSet className='bg-white rounded-2xl shadow-lg p-8 sm:p-12'>
 					<div className='text-center mb-10'>
 						<FieldLegend className='text-4xl sm:text-5xl font-bold bg-linear-to-r from-emerald-600 to-blue-600 bg-clip-text text-transparent mb-3'>
