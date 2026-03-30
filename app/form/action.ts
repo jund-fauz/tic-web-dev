@@ -15,9 +15,9 @@ export const input = async (prevState: any, formData: FormData) => {
 		.filter((cuisine) => formData.get(cuisine))
 		.map((cuisine) => capitalize(cuisine))
 		.join(', ')
-	const response = await ai.models.generateContent({
-		model: 'gemini-2.5-flash',
-		contents: `Generate a 7-day meal plan with the following parameters:
+	const response = await ai.chat.completions.create({
+		model: 'mistralai/mistral-7b-instruct:free',
+		messages: [{ role: 'user', content: `Generate a 7-day meal plan with the following parameters:
 
 	Goal: ${goal}
 	Daily Calories: ${calories} kcal
@@ -61,11 +61,11 @@ export const input = async (prevState: any, formData: FormData) => {
 	- Provide estimated grocery total in Rupiah and save it in 'grocery_total_rupiah' key (IMPORTANT!)
 
 	Return ONLY valid JSON with days, meals, and nutrition. No explanation.
-	`,
+	`}],
 	})
 	return {
 		...prevState,
-		data: JSON.parse(clean(response.text as string)),
+		data: JSON.parse(clean(response.choices[0].message.content as string)),
 		input: {
 			goal,
 			calories,
