@@ -3,6 +3,7 @@
 import { ai } from '@/lib/ai'
 import { capitalize } from '@/lib/capitalize'
 import { clean } from '@/lib/jsoncleaner'
+import { createClient } from '@/utils/supabase/server'
 
 export const input = async (prevState: any, formData: FormData) => {
 	const goal = capitalize(formData.get('goal')?.toString() as string)
@@ -63,9 +64,63 @@ export const input = async (prevState: any, formData: FormData) => {
 	Return ONLY valid JSON with days, meals, and nutrition. No explanation.
 	`}],
 	})
+
+	const planData = JSON.parse(clean(response.choices[0].message.content as string))
+
+	// Save to Supabase if user is logged in
+	const supabase = await createClient()
+	const { data: { user } } = await supabase.auth.getUser()
+
+	if (user) {
+		try {
+			const { data: plan, error: planError } = await supabase
+				.from("meal_plans")
+				.insert({
+					user_id: user.id,
+					week_start_date: new Date().toISOString().split('T')[0],
+					status: 'planned'
+				})
+				.select()
+				.single()
+
+			if (!planError && plan) {
+				const mealsToInsert: any[] = []
+				if (planData.days && Array.isArray(planData.days)) {
+					planData.days.forEach((day: any, index: number) => {
+						const dayNumber = index + 1
+						if (day.meals) {
+							Object.entries(day.meals).forEach(([mealType, meal]: [string, any]) => {
+								if (meal && meal.name) {
+									mealsToInsert.push({
+										meal_plan_id: plan.id,
+										day_number: dayNumber,
+										meal_type: mealType,
+										name: meal.name,
+										description: meal.description || "",
+										calories: meal.calories || 0,
+										proteins: meal.proteins || 0,
+										carbs: meal.carbs || 0,
+										fats: meal.fats || 0,
+										recipe: meal.recipe || {}
+									})
+								}
+							})
+						}
+					})
+				}
+
+				if (mealsToInsert.length > 0) {
+					await supabase.from("meals").insert(mealsToInsert)
+				}
+			}
+		} catch (error) {
+			console.error("Error saving plan to Supabase:", error)
+		}
+	}
+
 	return {
 		...prevState,
-		data: JSON.parse(clean(response.choices[0].message.content as string)),
+		data: planData,
 		input: {
 			goal,
 			calories,
