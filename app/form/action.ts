@@ -16,9 +16,30 @@ export const input = async (prevState: any, formData: FormData) => {
 		.filter((cuisine) => formData.get(cuisine))
 		.map((cuisine) => capitalize(cuisine))
 		.join(', ')
-	const response = await ai.chat.completions.create({
-		model: 'mistralai/mistral-7b-instruct:free',
-		messages: [{ role: 'user', content: `Generate a 7-day meal plan with the following parameters:
+	const MODELS = [
+		'google/gemini-2.0-flash:free', // Stable free version
+		'openrouter/free',              // Auto-router for free models
+		'google/gemma-2-9b-it:free',    // High reliability free model
+		'meta-llama/llama-3.3-70b-instruct:free',
+	]
+
+	let response: any = null
+	let lastError: any = null
+
+	console.log("Starting AI generation process...")
+
+	for (const model of MODELS) {
+		const startTime = Date.now()
+		try {
+			console.log(`Trying AI model: ${model}...`)
+			
+			// Increased timeout to 30s as free models can be slow
+			const controller = new AbortController();
+			const timeoutId = setTimeout(() => controller.abort(), 30000); 
+
+			response = await ai.chat.completions.create({
+				model: model,
+				messages: [{ role: 'user', content: `Generate a 7-day meal plan with the following parameters:
 
 	Goal: ${goal}
 	Daily Calories: ${calories} kcal
@@ -63,9 +84,38 @@ export const input = async (prevState: any, formData: FormData) => {
 
 	Return ONLY valid JSON with days, meals, and nutrition. No explanation.
 	`}],
-	})
+			}, { signal: controller.signal });
+			
+			clearTimeout(timeoutId);
 
-	const planData = JSON.parse(clean(response.choices[0].message.content as string))
+			if (response?.choices?.[0]?.message?.content) {
+				console.log(`Success with ${model} in ${Date.now() - startTime}ms`)
+				break
+			} else {
+				throw new Error("Empty response content")
+			}
+		} catch (err: any) {
+			const duration = Date.now() - startTime
+			console.error(`AI Model failed (${model}) after ${duration}ms:`, err.name === 'AbortError' ? 'Timeout' : err.message)
+			lastError = err
+			response = null // Reset for next iteration
+		}
+	}
+
+	if (!response || !response.choices?.[0]?.message?.content) {
+		throw new Error(`All AI models failed or returned empty content. Last error: ${lastError?.message}`)
+	}
+
+	const content = response.choices[0].message.content
+	const cleanedContent = clean(content)
+	
+	let planData;
+	try {
+		planData = JSON.parse(cleanedContent)
+	} catch (e) {
+		console.error("Failed to parse AI JSON:", cleanedContent)
+		throw new Error("AI returned invalid data format. Please try again.")
+	}
 
 	// Save to Supabase if user is logged in
 	const supabase = await createClient()

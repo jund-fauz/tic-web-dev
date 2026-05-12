@@ -33,7 +33,7 @@ import {
 	PaginationNext,
 	PaginationPrevious,
 } from '@/components/ui/pagination'
-import { ai } from '@/lib/ai'
+import { regenerateMealAction } from '../action'
 import { clean } from '@/lib/jsoncleaner'
 import Cookies from 'js-cookie'
 
@@ -43,13 +43,19 @@ export default function Meals() {
 	const [average, setAverage] = useState<any>(undefined)
 	const [mealAlt, setMealAlt] = useState<any>(undefined)
 	const day = Number(usePathname().replace('/meals/', ''))
-	const [date, _setDate] = useState(
-		localStorage ? new Date(localStorage.getItem('now') as string) : undefined
-	)
+	const [date, setDate] = useState<Date | undefined>(undefined)
+
+	useEffect(() => {
+		const now = localStorage.getItem('now')
+		if (now) {
+			setDate(new Date(now))
+		}
+	}, [])
+
 	const initialized = useRef(false)
 	const [open, setOpen] = useState(false)
 	const [limitOpen, setLimitOpen] = useState(false)
-	const [isSmallScreen, setIsSmallScreen] = useState(window.innerWidth < 1024)
+	const [isSmallScreen, setIsSmallScreen] = useState(true) // Default to true for SSR
 	const breakfastRef = useRef(null)
 	const lunchRef = useRef(null)
 	const dinnerRef = useRef(null)
@@ -58,6 +64,24 @@ export default function Meals() {
 	const [shareLoading, setShareLoading] = useState(false)
 	const [regLoading, setRegLoading] = useState(false)
 	const [isReg, setIsReg] = useState(false)
+
+	useEffect(() => {
+		setIsSmallScreen(window.innerWidth < 1024)
+		const handleResize = () => setIsSmallScreen(window.innerWidth < 1024)
+		window.addEventListener('resize', handleResize)
+		return () => window.removeEventListener('resize', handleResize)
+	}, [])
+
+	if (!date) {
+		return (
+			<div className='min-h-screen bg-emerald-50 flex items-center justify-center'>
+				<div className='animate-pulse text-emerald-600 font-medium'>
+					Loading your meal plan...
+				</div>
+			</div>
+		)
+	}
+
 	const paginations: JSX.Element[] = []
 
 	for (let index = 1; index < 8; index++) {
@@ -209,83 +233,26 @@ export default function Meals() {
 				Cookies.set('limit', '2', { expires: date })
 				Cookies.set('expiry', date.toISOString())
 			}
-			const response = await ai.models
-				.generateContent({
-					model: 'gemini-2.5-flash',
-					contents: `Regenerate one meal plan alternative for breakfast, lunch, dinner, and snack with the following parameters:
-				
-					Goal: ${preferences.goal}
-					Daily Calories: ${preferences.calories} kcal
-					Diet Type: ${preferences.diet}
-					Allergies: ${preferences.allergies}
-					Cuisine Preference: ${preferences.cuisines}
-					Foods to Avoid: ${preferences.dislikes}
-				
-					Total Nutrition:
-					- Calories: ${
-						meals.breakfast.calories +
-						meals.lunch.calories +
-						meals.dinner.calories +
-						meals.snack.calories
-					}
-					- Proteins: ${
-						meals.breakfast.proteins +
-						meals.lunch.proteins +
-						meals.dinner.proteins +
-						meals.snack.proteins
-					}
-					- Carbs: ${
-						meals.breakfast.carbs +
-						meals.lunch.carbs +
-						meals.dinner.carbs +
-						meals.snack.carbs
-					}
-					- Fats: ${
-						meals.breakfast.fats +
-						meals.lunch.fats +
-						meals.dinner.fats +
-						meals.snack.fats
-					}
-				
-					Meal should include:
-					- Name (appealing, specific)
-					- Brief description
-					- Calories, Protein (g), Carbs (g), Fats (g) (Each nutrition should same as provided above)
-				
-					Requirements:
-					- Balanced macros:
-					  * Weight Loss: 30% protein, 40% carbs, 30% fat
-					  * Muscle Gain: 30% protein, 40% carbs, 30% fat
-					  * Maintenance: 25% protein, 45% carbs, 30% fat
-					- Realistic meals (not overly complicated)
-					- Consider cuisine preference
-					- Avoid listed allergens & dislikes
-				
-					Rules:
-					- carbs, fats, and proteins key should not end with _g
-					- Give average calories, proteins, carbs, and fats per day
-					- All protein data should saved in 'proteins' key
-					- Meals should save in 'meals' key and saved as Array (IMPORTANT!)
-					- Should generate 4 items for breakfast, lunch, dinner, and snack (IMPORTANT!)
-					- Don't provide average daily nutrition
-					- Don't save meals with meal's name for key
-					- Don't use capital letter as key
-					- Don't save all nutrition in separate 'nutrition' key
-				
-					Return ONLY valid JSON with meals and nutrition. No explanation.
-					`,
+			try {
+				const resultAction = await regenerateMealAction(preferences, meals)
+				if (!resultAction.success) throw new Error(resultAction.error)
+
+				const result = JSON.parse(clean(resultAction.data as string)).meals
+				console.log(result)
+				updateMeals((prev: any) => {
+					;(prev.breakfast = result[0]),
+						(prev.lunch = result[1]),
+						(prev.dinner = result[2]),
+						(prev.snack = result[3])
 				})
-				.finally(() => setRegLoading(false))
-			const result = JSON.parse(clean(response.text as string)).meals
-			console.log(result)
-			updateMeals((prev: any) => {
-				;(prev.breakfast = result[0]),
-					(prev.lunch = result[1]),
-					(prev.dinner = result[2]),
-					(prev.snack = result[3])
-			})
-			setMealAlt(meals)
-			setIsReg(true)
+				setMealAlt(meals)
+				setIsReg(true)
+			} catch (error) {
+				console.error('Failed to regenerate meal:', error)
+				alert('AI service is currently busy. Please try again later.')
+			} finally {
+				setRegLoading(false)
+			}
 		}
 	}
 
