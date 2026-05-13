@@ -19,7 +19,7 @@ export const genAI = new GoogleGenerativeAI(geminiKey || "missing-key");
 /**
  * Helper to generate text with fallback from Gemini to OpenRouter
  */
-export async function generateContent(prompt: string) {
+export async function generateContent(prompt: string): Promise<string> {
   // Try Gemini first
   try {
     const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
@@ -35,7 +35,12 @@ export async function generateContent(prompt: string) {
         model: "google/gemini-2.0-flash:free", // Updated from experimental to stable free identifier
         messages: [{ role: "user", content: prompt }],
       });
-      return completion.choices[0].message.content;
+      
+      const content = completion?.choices?.[0]?.message?.content;
+      if (!content) {
+        throw new Error("OpenRouter returned an empty response.");
+      }
+      return content;
     } catch (openRouterError: any) {
       console.error("Both AI providers failed:", openRouterError.message);
       throw new Error("All AI providers are currently unavailable.");

@@ -68,7 +68,15 @@ export async function regenerateMealAction(preferences: any, currentMeals: any) 
 
   try {
     const responseText = await generateContent(prompt);
-    return { data: responseText, success: true };
+    
+    // Validate that responseText is valid JSON
+    try {
+      const data = JSON.parse(responseText as string);
+      return { data, success: true };
+    } catch (parseError) {
+      console.error("Failed to parse regenerated meal JSON:", responseText);
+      return { data: null, success: false, error: 'invalid JSON' };
+    }
   } catch (error: any) {
     console.error("Server Action Regeneration Error:", error.message);
     return { success: false, error: error.message };

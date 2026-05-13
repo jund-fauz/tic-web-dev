@@ -5,6 +5,7 @@ import { TrendingUp, Calendar, CheckCircle2, PlusCircle, ArrowRight, Utensils } 
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import MealToggle from "./meal-toggle";
+import { Meal, MealPlan } from "@/types/database";
 
 export default async function DashboardPage() {
   const supabase = await createClient();
@@ -21,7 +22,7 @@ export default async function DashboardPage() {
   const { data: mealPlans, error } = await supabase
     .from("meal_plans")
     .select("*, meals(*)")
-    .order("week_start_date", { ascending: false });
+    .order("week_start_date", { ascending: false }) as { data: MealPlan[] | null, error: any };
 
   if (error) {
     console.error("Error fetching meal plans:", JSON.stringify(error, null, 2));
@@ -49,7 +50,7 @@ export default async function DashboardPage() {
 
   const currentPlan = mealPlans?.[0];
   const totalMeals = currentPlan?.meals?.length || 0;
-  const eatenMeals = currentPlan?.meals?.filter((m: any) => m.is_eaten).length || 0;
+  const eatenMeals = currentPlan?.meals?.filter((m: Meal) => m.is_eaten).length || 0;
   const progress = totalMeals > 0 ? (eatenMeals / totalMeals) * 100 : 0;
 
   return (
@@ -92,7 +93,7 @@ export default async function DashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-emerald-900">
-              {currentPlan?.meals?.reduce((acc: number, m: any) => acc + (Number(m.calories) || 0), 0).toFixed(0)} kcal
+              {currentPlan?.meals ? currentPlan.meals.reduce((acc: number, m: Meal) => acc + (Number(m.calories) || 0), 0).toFixed(0) : 0} kcal
             </div>
             <p className="text-xs text-emerald-600 mt-1">Total weekly target</p>
           </CardContent>
@@ -132,7 +133,7 @@ export default async function DashboardPage() {
             <div className="divide-y divide-emerald-50">
               {/* Group by day number if possible, or just list */}
               {Array.from({ length: 7 }, (_, i) => i + 1).map(dayNum => {
-                const dayMeals = currentPlan.meals.filter((m: any) => m.day_number === dayNum);
+                const dayMeals = currentPlan.meals!.filter((m: Meal) => m.day_number === dayNum);
                 if (dayMeals.length === 0) return null;
                 
                 return (
@@ -147,19 +148,19 @@ export default async function DashboardPage() {
                       </Link>
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                      {dayMeals.sort((a: any, b: any) => {
+                      {dayMeals.sort((a: Meal, b: Meal) => {
                         const order = { breakfast: 1, lunch: 2, dinner: 3, snack: 4 };
                         return (order[a.meal_type as keyof typeof order] || 5) - (order[b.meal_type as keyof typeof order] || 5);
-                      }).map((meal: any) => (
+                      }).map((meal: Meal) => (
                         <div key={meal.id} className="bg-white p-3 rounded-lg border border-emerald-100 shadow-sm flex flex-col justify-between">
                           <div>
                             <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-500 bg-emerald-50 px-1.5 py-0.5 rounded mb-2 inline-block">
                               {meal.meal_type}
                             </span>
-                            <h4 className="font-medium text-emerald-900 text-sm line-clamp-1">{meal.name}</h4>
+                            <h4 className="font-semibold text-emerald-900 text-sm line-clamp-1">{meal.name}</h4>
                           </div>
-                          <div className="mt-3 flex items-center justify-between">
-                            <span className="text-xs text-emerald-600">{meal.calories} kcal</span>
+                          <div className="flex items-center justify-between mt-3 pt-2 border-t border-emerald-50">
+                            <span className="text-xs text-emerald-600 font-medium">{meal.calories.toFixed(0)} kcal</span>
                             <MealToggle mealId={meal.id} initialIsEaten={meal.is_eaten} />
                           </div>
                         </div>

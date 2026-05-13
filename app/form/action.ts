@@ -37,9 +37,10 @@ export const input = async (prevState: any, formData: FormData) => {
 			const controller = new AbortController();
 			const timeoutId = setTimeout(() => controller.abort(), 30000); 
 
-			response = await ai.chat.completions.create({
-				model: model,
-				messages: [{ role: 'user', content: `Generate a 7-day meal plan with the following parameters:
+			try {
+				response = await ai.chat.completions.create({
+					model: model,
+					messages: [{ role: 'user', content: `Generate a 7-day meal plan with the following parameters:
 
 	Goal: ${goal}
 	Daily Calories: ${calories} kcal
@@ -84,9 +85,10 @@ export const input = async (prevState: any, formData: FormData) => {
 
 	Return ONLY valid JSON with days, meals, and nutrition. No explanation.
 	`}],
-			}, { signal: controller.signal });
-			
-			clearTimeout(timeoutId);
+				}, { signal: controller.signal });
+			} finally {
+				clearTimeout(timeoutId);
+			}
 
 			if (response?.choices?.[0]?.message?.content) {
 				console.log(`Success with ${model} in ${Date.now() - startTime}ms`)
@@ -113,7 +115,7 @@ export const input = async (prevState: any, formData: FormData) => {
 	try {
 		planData = JSON.parse(cleanedContent)
 	} catch (e) {
-		console.error("Failed to parse AI JSON:", cleanedContent)
+		console.error("Failed to parse AI JSON. Payload length:", cleanedContent.length, "Preview:", cleanedContent.substring(0, 100))
 		throw new Error("AI returned invalid data format. Please try again.")
 	}
 
@@ -122,49 +124,54 @@ export const input = async (prevState: any, formData: FormData) => {
 	const { data: { user } } = await supabase.auth.getUser()
 
 	if (user) {
-		try {
-			const { data: plan, error: planError } = await supabase
-				.from("meal_plans")
-				.insert({
-					user_id: user.id,
-					week_start_date: new Date().toISOString().split('T')[0],
-					status: 'planned'
-				})
-				.select()
-				.single()
+		const { data: plan, error: planError } = await supabase
+			.from("meal_plans")
+			.insert({
+				user_id: user.id,
+				week_start_date: new Date().toISOString().split('T')[0],
+				status: 'planned'
+			})
+			.select()
+			.single()
 
-			if (!planError && plan) {
-				const mealsToInsert: any[] = []
-				if (planData.days && Array.isArray(planData.days)) {
-					planData.days.forEach((day: any, index: number) => {
-						const dayNumber = index + 1
-						if (day.meals) {
-							Object.entries(day.meals).forEach(([mealType, meal]: [string, any]) => {
-								if (meal && meal.name) {
-									mealsToInsert.push({
-										meal_plan_id: plan.id,
-										day_number: dayNumber,
-										meal_type: mealType,
-										name: meal.name,
-										description: meal.description || "",
-										calories: meal.calories || 0,
-										proteins: meal.proteins || 0,
-										carbs: meal.carbs || 0,
-										fats: meal.fats || 0,
-										recipe: meal.recipe || {}
-									})
-								}
+		if (planError || !plan) {
+			console.error("Error creating meal plan:", planError)
+			throw new Error("Failed to create meal plan record.")
+		}
+
+		const mealsToInsert: any[] = []
+		if (planData.days && Array.isArray(planData.days)) {
+			planData.days.forEach((day: any, index: number) => {
+				const dayNumber = index + 1
+				if (day.meals) {
+					Object.entries(day.meals).forEach(([mealType, meal]: [string, any]) => {
+						if (meal && meal.name) {
+							mealsToInsert.push({
+								meal_plan_id: plan.id,
+								day_number: dayNumber,
+								meal_type: mealType,
+								name: meal.name,
+								description: meal.description || "",
+								calories: meal.calories || 0,
+								proteins: meal.proteins || 0,
+								carbs: meal.carbs || 0,
+								fats: meal.fats || 0,
+								recipe: meal.recipe || {}
 							})
 						}
 					})
 				}
+			})
+		}
 
-				if (mealsToInsert.length > 0) {
-					await supabase.from("meals").insert(mealsToInsert)
-				}
+		if (mealsToInsert.length > 0) {
+			const { error: mealsError } = await supabase.from("meals").insert(mealsToInsert)
+			if (mealsError) {
+				console.error("Error inserting meals:", mealsError)
+				// Compensating logic: delete the orphan plan
+				await supabase.from("meal_plans").delete().eq("id", plan.id)
+				throw new Error("Failed to save meals to the plan.")
 			}
-		} catch (error) {
-			console.error("Error saving plan to Supabase:", error)
 		}
 	}
 

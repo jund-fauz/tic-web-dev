@@ -14,6 +14,7 @@ export default function MobileMenu({ email }: { email: string | undefined }) {
       <button 
         onClick={() => setIsOpen(true)}
         className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
+        aria-label="Open menu"
       >
         <Menu className="w-6 h-6" />
       </button>
@@ -29,7 +30,11 @@ export default function MobileMenu({ email }: { email: string | undefined }) {
                 <Utensils className="w-6 h-6 text-emerald-600" />
                 <span>MealPlanner</span>
               </Link>
-              <button onClick={() => setIsOpen(false)} className="text-emerald-400">
+              <button 
+                onClick={() => setIsOpen(false)} 
+                className="text-emerald-400"
+                aria-label="Close menu"
+              >
                 <X className="w-6 h-6" />
               </button>
             </div>

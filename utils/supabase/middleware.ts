@@ -11,17 +11,6 @@ export async function updateSession(request: NextRequest) {
     },
   });
 
-  // Ensure CSRF secret exists
-  if (!request.cookies.get(CSRF_SECRET_COOKIE)) {
-    const secret = randomBytes(32).toString('hex');
-    response.cookies.set(CSRF_SECRET_COOKIE, secret, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      path: '/',
-    });
-  }
-
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -77,6 +66,17 @@ export async function updateSession(request: NextRequest) {
     ) {
       return NextResponse.redirect(new URL("/login", request.url));
     }
+  }
+
+  // Ensure CSRF secret exists on the final response if it's not in the request
+  if (!request.cookies.get(CSRF_SECRET_COOKIE) && !response.cookies.get(CSRF_SECRET_COOKIE)) {
+    const secret = randomBytes(32).toString('hex');
+    response.cookies.set(CSRF_SECRET_COOKIE, secret, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      path: '/',
+    });
   }
 
   return response;

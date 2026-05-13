@@ -24,7 +24,7 @@ export async function syncMealsFromLocal(localData: any) {
     if (planError) throw planError;
 
     // 2. Prepare meals for insertion
-    const mealsToInsert = [];
+    const mealsToInsert: any[] = [];
     
     // Assuming localData.days is an array of 7 days
     if (localData.days && Array.isArray(localData.days)) {
@@ -56,7 +56,11 @@ export async function syncMealsFromLocal(localData: any) {
         .from("meals")
         .insert(mealsToInsert);
       
-      if (mealsError) throw mealsError;
+      if (mealsError) {
+        // Compensating logic: delete the orphan plan
+        await supabase.from("meal_plans").delete().eq("id", plan.id);
+        throw mealsError;
+      }
     }
 
     revalidatePath("/dashboard");

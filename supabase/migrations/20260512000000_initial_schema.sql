@@ -58,6 +58,10 @@ USING (
     )
 );
 
+-- Create indexes for performance
+CREATE INDEX IF NOT EXISTS idx_meal_plans_user_id ON public.meal_plans(user_id);
+CREATE INDEX IF NOT EXISTS idx_meals_meal_plan_id ON public.meals(meal_plan_id);
+
 CREATE POLICY "Users can insert their own meals" 
 ON public.meals FOR INSERT 
 WITH CHECK (

@@ -46,10 +46,19 @@ export default function Meals() {
 	const [date, setDate] = useState<Date | undefined>(undefined)
 
 	useEffect(() => {
-		const now = localStorage.getItem('now')
-		if (now) {
-			setDate(new Date(now))
+		try {
+			const now = localStorage.getItem('now')
+			if (now) {
+				const parsedDate = new Date(now)
+				if (!isNaN(parsedDate.getTime())) {
+					setDate(parsedDate)
+					return
+				}
+			}
+		} catch (e) {
+			console.error("Error reading date from localStorage:", e)
 		}
+		setDate(new Date())
 	}, [])
 
 	const initialized = useRef(false)
@@ -66,8 +75,8 @@ export default function Meals() {
 	const [isReg, setIsReg] = useState(false)
 
 	useEffect(() => {
-		setIsSmallScreen(window.innerWidth < 1024)
 		const handleResize = () => setIsSmallScreen(window.innerWidth < 1024)
+		handleResize() // Set initial state
 		window.addEventListener('resize', handleResize)
 		return () => window.removeEventListener('resize', handleResize)
 	}, [])
@@ -124,13 +133,6 @@ export default function Meals() {
 			}
 			initialized.current = true
 		}
-	}, [])
-
-	useEffect(() => {
-		const handleResize = () => setIsSmallScreen(window.innerWidth < 1024)
-		window.addEventListener('resize', handleResize)
-
-		return () => window.removeEventListener('resize', handleResize)
 	}, [])
 
 	const save = (params: any) => {
