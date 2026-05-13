@@ -9,6 +9,7 @@ import { useRef, useState, useEffect } from 'react'
 
 import { createClient } from '@/utils/supabase/client'
 import { redirect } from 'next/navigation'
+import { estimateGroceryTotal, updatePlanTotal } from './action'
 
 export default function Grocery() {
 	const supabase = createClient()
@@ -21,8 +22,36 @@ export default function Grocery() {
 	const [planPeriod, setPlanPeriod] = useState<string>('')
 	const [pdfLoading, setPdfLoading] = useState(false)
 	const [shareLoading, setShareLoading] = useState(false)
+	const [isEstimating, setIsEstimating] = useState(false)
 	const [loading, setLoading] = useState(true)
 	const divRef = useRef(null)
+
+	const handleEstimateTotal = async () => {
+		if (!grocery || !planId) return
+		
+		setIsEstimating(true)
+		try {
+			const result = await estimateGroceryTotal(grocery)
+			if (result.total > 0) {
+				setGroceryTotal(result.total)
+				await updatePlanTotal(planId, result.total)
+				
+				// Update localStorage
+				const savedMeals = localStorage.getItem('meals')
+				if (savedMeals) {
+					const parsed = JSON.parse(savedMeals)
+					parsed.grocery_total_rupiah = result.total
+					localStorage.setItem('meals', JSON.stringify(parsed))
+				}
+			} else {
+				alert('No prices found in database. Run the crawler script first to populate prices.')
+			}
+		} catch (error) {
+			console.error('Error estimating total:', error)
+		} finally {
+			setIsEstimating(false)
+		}
+	}
 
 	useEffect(() => {
 		async function fetchData() {
@@ -429,12 +458,22 @@ export default function Grocery() {
 					)}
 				</div>
 				<div className='bg-white rounded-xl shadow-lg p-6 mb-6 flex items-center justify-between'>
-					<p className='text-lg font-bold text-emerald-800'>
-						Estimated Weekly Total: 
-						<span className='ml-2 text-emerald-600 font-mono'>
-							Rp{groceryTotal?.toLocaleString() || '0'}
-						</span>
-					</p>
+					<div className="flex flex-col gap-1">
+						<p className='text-lg font-bold text-emerald-800'>
+							Estimated Weekly Total: 
+							<span className='ml-2 text-emerald-600 font-mono'>
+								Rp{groceryTotal?.toLocaleString() || '0'}
+							</span>
+						</p>
+						<Button 
+							variant="link" 
+							className="text-xs text-emerald-600 h-auto p-0 w-fit hover:text-emerald-800"
+							onClick={handleEstimateTotal}
+							disabled={isEstimating || !grocery}
+						>
+							{isEstimating ? 'Calculating...' : '🔄 Recalculate using real market prices'}
+						</Button>
+					</div>
 					<div className='flex gap-4'>
 						<Button
 							className='hover:cursor-pointer min-w-[160px]'

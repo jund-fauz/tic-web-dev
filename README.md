@@ -22,6 +22,7 @@ cp .env-example .env
 **Key Variables:**
 
 - `NEXT_PUBLIC_SUPABASE_URL` & `NEXT_PUBLIC_SUPABASE_ANON_KEY`: Found in your Supabase project settings.
+- `SUPABASE_SERVICE_ROLE_KEY`: Required for backend scripts (like price crawler) to bypass RLS. Keep this secret!
 - `OPENROUTER_API_KEY`: Get this from OpenRouter to access various LLMs (like Mistral).
 - `GEMINI_API_KEY`: (Optional) If you want to use Google's Gemini models directly.
 - `NEXT_PUBLIC_BASE_URL`: Set to `http://localhost:3001` for local development.
@@ -106,6 +107,12 @@ The app will be available at `http://localhost:3001`.
 - [x] Connect the AI meal generator to save results directly to the database.
 - [x] Add progress visualizations for weekly goals.
 - [x] Ensure responsive design for mobile and desktop views.
+
+### Phase 5: Price Tracking & Crawler
+
+- [x] Create `product_prices` table to cache grocery prices from various stores.
+- [x] Implement Puppeteer-based crawler script to fetch real-time prices (Alfagift, KlikIndomaret, Yogya Online).
+- [x] Add automated price estimation for grocery lists based on market data.
 
 ## 📦 Deployment
 
