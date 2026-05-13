@@ -89,11 +89,15 @@ export async function regenerateMealAction(preferences: any, currentMeals: any) 
 }
 
 export async function generateMealDetailsAction(mealName: string, description: string) {
-  const prompt = `Generate cooking details for "${mealName}" (${description}) in Indonesian language (Bahasa Indonesia).
+  const prompt = `Generate cooking details and required grocery items for "${mealName}" (${description}) in Indonesian language (Bahasa Indonesia).
     Return ONLY valid JSON with the following structure:
     {
       "ingredients": ["bahan 1...", "bahan 2..."],
-      "instructions": ["langkah 1...", "langkah 2..."]
+      "instructions": ["langkah 1...", "langkah 2..."],
+      "grocery_items": [
+        {"category": "Vegetables", "item": "Nama Bahan 1 (Jumlah)"},
+        {"category": "Meat", "item": "Nama Bahan 2 (Jumlah)"}
+      ]
     }
     No explanation.`;
 

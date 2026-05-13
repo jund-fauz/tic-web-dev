@@ -58,6 +58,7 @@ export default function Meals() {
 	const lunchRef = useRef(null)
 	const dinnerRef = useRef(null)
 	const snackRef = useRef(null)
+	const recipeRef = useRef(null)
 	const [pdfLoading, setPdfLoading] = useState(false)
 	const [shareLoading, setShareLoading] = useState(false)
 	const [regLoading, setRegLoading] = useState(false)
@@ -74,7 +75,7 @@ export default function Meals() {
 		try {
 			const result = await generateMealDetailsAction(meal.name, meal.description)
 			if (result.success && result.data) {
-				const { ingredients, instructions } = result.data
+				const { ingredients, instructions, grocery_items } = result.data
 				
 				updateMeals((prev: any) => {
 					prev[mealType].instructions = instructions
@@ -82,41 +83,91 @@ export default function Meals() {
 					prev[mealType].recipe.ingredients = ingredients
 				})
 				
-				// Update Supabase if needed
+				// Update Supabase
 				const { data: { user } } = await supabase.auth.getUser()
 				if (user) {
-					// Find the current meal plan and the specific meal
 					const { data: mealPlans } = await supabase
 						.from('meal_plans')
-						.select('id')
+						.select('id, groceries')
 						.eq('user_id', user.id)
 						.order('created_at', { ascending: false })
 						.limit(1)
 					
 					if (mealPlans && mealPlans.length > 0) {
+						const planId = mealPlans[0].id
+						
+						// 1. Update the meal itself
 						await supabase
 							.from('meals')
 							.update({ 
 								instructions: instructions,
 								recipe: { ingredients: ingredients }
 							})
-							.eq('meal_plan_id', mealPlans[0].id)
+							.eq('meal_plan_id', planId)
 							.eq('day_number', day)
 							.eq('meal_type', mealType)
-					}
-				}
 
-				// Also update localStorage
-				const savedMeals = localStorage.getItem('meals')
-				if (savedMeals) {
-					const mealData = JSON.parse(savedMeals)
-					if (mealData.days && mealData.days[day - 1]) {
-						mealData.days[day - 1].meals[mealType].instructions = instructions
-						if (!mealData.days[day - 1].meals[mealType].recipe) {
-							mealData.days[day - 1].meals[mealType].recipe = {}
+						// 2. Update the aggregated groceries in meal_plans and meal_groceries table
+						if (grocery_items && Array.isArray(grocery_items)) {
+							const currentGroceries = mealPlans[0].groceries || {}
+							
+							grocery_items.forEach((newItem: any) => {
+								const category = newItem.category || 'Other'
+								if (!currentGroceries[category]) {
+									currentGroceries[category] = []
+								}
+								// Avoid duplicates if possible (simple check)
+								if (!currentGroceries[category].includes(newItem.item)) {
+									currentGroceries[category].push(newItem.item)
+								}
+							})
+
+							// Update meal_plans table
+							await supabase
+								.from('meal_plans')
+								.update({ groceries: currentGroceries })
+								.eq('id', planId)
+
+							// Update meal_groceries table (upsert-like behavior)
+							for (const [category, items] of Object.entries(currentGroceries)) {
+								const { data: existingCat } = await supabase
+									.from('meal_groceries')
+									.select('id')
+									.eq('meal_plan_id', planId)
+									.eq('category', category)
+									.single()
+								
+								if (existingCat) {
+									await supabase
+										.from('meal_groceries')
+										.update({ items: items })
+										.eq('id', existingCat.id)
+								} else {
+									await supabase
+										.from('meal_groceries')
+										.insert({
+											meal_plan_id: planId,
+											category: category,
+											items: items
+										})
+								}
+							}
+
+							// Update localStorage to keep it in sync
+							const savedMeals = localStorage.getItem('meals')
+							if (savedMeals) {
+								const mealData = JSON.parse(savedMeals)
+								mealData.grocery = currentGroceries
+								if (mealData.days && mealData.days[day - 1]) {
+									mealData.days[day - 1].meals[mealType].instructions = instructions
+									if (!mealData.days[day - 1].meals[mealType].recipe) {
+										mealData.days[day - 1].meals[mealType].recipe = {}
+									}
+									mealData.days[day - 1].meals[mealType].recipe.ingredients = ingredients
+								}
+								localStorage.setItem('meals', JSON.stringify(mealData))
+							}
 						}
-						mealData.days[day - 1].meals[mealType].recipe.ingredients = ingredients
-						localStorage.setItem('meals', JSON.stringify(mealData))
 					}
 				}
 			} else {
@@ -291,8 +342,8 @@ export default function Meals() {
 			const { default: jsPDF } = await import('jspdf')
 
 			const pdf = new jsPDF({ format: 'a5', unit: 'mm' })
-			const refs = [breakfastRef, lunchRef, dinnerRef, snackRef]
-			const mealTypes = ['Breakfast', 'Lunch', 'Dinner', 'Snack']
+			const refs = [breakfastRef, lunchRef, dinnerRef, snackRef, recipeRef]
+			const mealTypes = ['Breakfast', 'Lunch', 'Dinner', 'Snack', 'Recipe Details']
 			let successCount = 0
 
 			for (let i = 0; i < refs.length; i++) {
@@ -304,6 +355,7 @@ export default function Meals() {
 						scale: 2,
 						useCORS: true,
 						backgroundColor: '#ffffff',
+						ignoreElements: (el) => el.tagName === 'BUTTON' || el.getAttribute('data-html2canvas-ignore') === 'true'
 					})
 					
 					if (successCount > 0) pdf.addPage()
@@ -321,18 +373,67 @@ export default function Meals() {
 					pdf.text(`Meal Plan - ${mealTypes[i]}`, 10, 13)
 					
 					// Add the meal card image
-					const imgWidth = pdfWidth - 20
+					const margin = 10
+					const imgWidth = pdfWidth - (margin * 2)
 					const imgHeight = (canvas.height * imgWidth) / canvas.width
-					pdf.addImage(imgData, 'PNG', 10, 25, imgWidth, imgHeight)
 					
-					// Add footer
-					pdf.setTextColor(150, 150, 150)
-					pdf.setFontSize(8)
-					pdf.setFont('helvetica', 'normal')
-					const dateStr = date?.toLocaleDateString('en-US', { 
-						weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' 
-					})
-					pdf.text(`Generated for ${preferences?.email || 'User'} on ${dateStr}`, 10, pdfHeight - 10)
+					const maxHeight = pdfHeight - 40 // 20 for header, 20 for footer/margins
+					
+					if (imgHeight <= maxHeight) {
+						const xPos = (pdfWidth - imgWidth) / 2
+						pdf.addImage(imgData, 'PNG', xPos, 25, imgWidth, imgHeight)
+					} else {
+						// Image is too tall, split it into multiple pages
+						let heightLeft = imgHeight
+						let position = 25 // Start position after header
+						let pageNumInRef = 1
+
+						while (heightLeft > 0) {
+							if (pageNumInRef > 1) {
+								pdf.addPage()
+								// Add header again for the new page
+								pdf.setFillColor(16, 185, 129)
+								pdf.rect(0, 0, pdfWidth, 20, 'F')
+								pdf.setTextColor(255, 255, 255)
+								pdf.setFontSize(14)
+								pdf.setFont('helvetica', 'bold')
+								pdf.text(`Meal Plan - ${mealTypes[i]} (cont.)`, 10, 13)
+							}
+
+							pdf.addImage(
+								imgData, 
+								'PNG', 
+								(pdfWidth - imgWidth) / 2, 
+								25 - (pageNumInRef - 1) * maxHeight, 
+								imgWidth, 
+								imgHeight
+							)
+							
+							heightLeft -= maxHeight
+							
+							// Add footer
+							pdf.setTextColor(150, 150, 150)
+							pdf.setFontSize(8)
+							pdf.setFont('helvetica', 'normal')
+							const dateStr = date?.toLocaleDateString('en-US', { 
+								weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' 
+							})
+							pdf.text(`Generated for ${preferences?.email || 'User'} on ${dateStr}`, 10, pdfHeight - 10)
+							
+							if (heightLeft > 0) pageNumInRef++
+						}
+					}
+					
+					if (imgHeight <= maxHeight) {
+						// Add footer for single page case
+						pdf.setTextColor(150, 150, 150)
+						pdf.setFontSize(8)
+						pdf.setFont('helvetica', 'normal')
+						const dateStr = date?.toLocaleDateString('en-US', { 
+							weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' 
+						})
+						pdf.text(`Generated for ${preferences?.email || 'User'} on ${dateStr}`, 10, pdfHeight - 10)
+					}
 					
 					successCount++
 				} catch (err) {
@@ -388,7 +489,7 @@ export default function Meals() {
 				const resultAction = await regenerateMealAction(preferences, meals)
 				if (!resultAction.success) throw new Error(resultAction.error)
 
-				const result = JSON.parse(clean(resultAction.data as string)).meals
+				const result = resultAction.data.meals
 				console.log(result)
 				updateMeals((prev: any) => {
 					;(prev.breakfast = result[0]),
@@ -551,7 +652,7 @@ export default function Meals() {
 
 				{/* Cooking Instructions Section */}
 				{meals && (
-					<div className='bg-white rounded-xl shadow-lg p-6'>
+					<div className='bg-white rounded-xl shadow-lg p-6' ref={recipeRef}>
 						<h2 className='text-2xl font-bold text-emerald-800 mb-6 flex items-center gap-2'>
 							<Utensils className='w-6 h-6' />
 							Bahan & Cara Memasak (Recipe Details)

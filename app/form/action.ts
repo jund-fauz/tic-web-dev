@@ -139,7 +139,9 @@ export async function input(prevState: any, formData: FormData) {
 			.insert({
 				user_id: user.id,
 				week_start_date: new Date().toISOString().split('T')[0],
-				status: 'planned'
+				status: 'planned',
+				groceries: planData.grocery || {},
+				grocery_total_rupiah: planData.grocery_total_rupiah || 0
 			})
 			.select()
 			.single()
@@ -147,6 +149,20 @@ export async function input(prevState: any, formData: FormData) {
 		if (planError || !plan) {
 			console.error("Error creating meal plan:", planError)
 			throw new Error("Failed to create meal plan record.")
+		}
+
+		// Insert into meal_groceries for structured access if needed
+		if (planData.grocery) {
+			const groceryInserts = Object.entries(planData.grocery).map(([category, items]) => ({
+				meal_plan_id: plan.id,
+				category,
+				items: items
+			}))
+			
+			if (groceryInserts.length > 0) {
+				const { error: groceryError } = await supabase.from("meal_groceries").insert(groceryInserts)
+				if (groceryError) console.error("Error inserting meal groceries:", groceryError)
+			}
 		}
 
 		const mealsToInsert: MealInsert[] = []
