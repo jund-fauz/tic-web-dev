@@ -172,7 +172,10 @@ export default async function DashboardPage() {
                             <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-500 bg-emerald-50 px-1.5 py-0.5 rounded mb-2 inline-block">
                               {meal.meal_type}
                             </span>
-                            <h4 className="font-semibold text-emerald-900 text-sm line-clamp-1">{meal.name}</h4>
+                            <h4 className="font-semibold text-emerald-900 text-sm">{meal.name}</h4>
+                            {meal.description && (
+                              <p className="text-xs text-emerald-600 mt-1 line-clamp-2">{meal.description}</p>
+                            )}
                           </div>
                           <div className="flex items-center justify-between mt-3 pt-2 border-t border-emerald-50">
                             <span className="text-xs text-emerald-600 font-medium">{meal.calories.toFixed(0)} kcal</span>

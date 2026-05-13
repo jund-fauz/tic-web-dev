@@ -16,6 +16,7 @@ export interface Meal {
   carbs: number;
   fats: number;
   recipe?: Recipe;
+  instructions?: string[];
   is_eaten: boolean;
   created_at: string;
   updated_at: string;

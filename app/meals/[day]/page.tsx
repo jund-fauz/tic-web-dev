@@ -19,7 +19,7 @@ import {
 	DialogTitle,
 } from '@/components/ui/dialog'
 import { Separator } from '@/components/ui/separator'
-import { ArrowLeft, Calendar, TrendingUp } from 'lucide-react'
+import { ArrowLeft, Calendar, TrendingUp, Utensils } from 'lucide-react'
 import Link from 'next/link'
 import { redirect, usePathname } from 'next/navigation'
 import { JSX, useEffect, useRef, useState } from 'react'
@@ -33,7 +33,7 @@ import {
 	PaginationNext,
 	PaginationPrevious,
 } from '@/components/ui/pagination'
-import { regenerateMealAction } from '../action'
+import { regenerateMealAction, generateMealDetailsAction } from '../action'
 import { clean } from '@/lib/jsoncleaner'
 import Cookies from 'js-cookie'
 import { createClient } from '@/utils/supabase/client'
@@ -62,8 +62,73 @@ export default function Meals() {
 	const [shareLoading, setShareLoading] = useState(false)
 	const [regLoading, setRegLoading] = useState(false)
 	const [isReg, setIsReg] = useState(false)
+	const [loadingInstructions, setLoadingInstructions] = useState<string | null>(null)
 
 	const handleResize = () => setIsSmallScreen(window.innerWidth < 1024)
+
+	const generateMealDetails = async (mealType: string) => {
+		const meal = meals[mealType]
+		if (!meal) return
+
+		setLoadingInstructions(mealType)
+		try {
+			const result = await generateMealDetailsAction(meal.name, meal.description)
+			if (result.success && result.data) {
+				const { ingredients, instructions } = result.data
+				
+				updateMeals((prev: any) => {
+					prev[mealType].instructions = instructions
+					if (!prev[mealType].recipe) prev[mealType].recipe = {}
+					prev[mealType].recipe.ingredients = ingredients
+				})
+				
+				// Update Supabase if needed
+				const { data: { user } } = await supabase.auth.getUser()
+				if (user) {
+					// Find the current meal plan and the specific meal
+					const { data: mealPlans } = await supabase
+						.from('meal_plans')
+						.select('id')
+						.eq('user_id', user.id)
+						.order('created_at', { ascending: false })
+						.limit(1)
+					
+					if (mealPlans && mealPlans.length > 0) {
+						await supabase
+							.from('meals')
+							.update({ 
+								instructions: instructions,
+								recipe: { ingredients: ingredients }
+							})
+							.eq('meal_plan_id', mealPlans[0].id)
+							.eq('day_number', day)
+							.eq('meal_type', mealType)
+					}
+				}
+
+				// Also update localStorage
+				const savedMeals = localStorage.getItem('meals')
+				if (savedMeals) {
+					const mealData = JSON.parse(savedMeals)
+					if (mealData.days && mealData.days[day - 1]) {
+						mealData.days[day - 1].meals[mealType].instructions = instructions
+						if (!mealData.days[day - 1].meals[mealType].recipe) {
+							mealData.days[day - 1].meals[mealType].recipe = {}
+						}
+						mealData.days[day - 1].meals[mealType].recipe.ingredients = ingredients
+						localStorage.setItem('meals', JSON.stringify(mealData))
+					}
+				}
+			} else {
+				alert('Failed to generate details. Please try again.')
+			}
+		} catch (error) {
+			console.error('Error generating details:', error)
+			alert('An error occurred. Please try again.')
+		} finally {
+			setLoadingInstructions(null)
+		}
+	}
 
 	useEffect(() => {
 		handleResize() // Set initial state
@@ -117,7 +182,8 @@ export default function Meals() {
 							proteins: m.proteins,
 							carbs: m.carbs,
 							fats: m.fats,
-							recipe: m.recipe
+							recipe: m.recipe,
+							instructions: m.instructions
 						}
 					})
 					updateMeals(mealMap)
@@ -482,6 +548,124 @@ export default function Meals() {
 						/>
 					</div>
 				)}
+
+				{/* Cooking Instructions Section */}
+				{meals && (
+					<div className='bg-white rounded-xl shadow-lg p-6'>
+						<h2 className='text-2xl font-bold text-emerald-800 mb-6 flex items-center gap-2'>
+							<Utensils className='w-6 h-6' />
+							Bahan & Cara Memasak (Recipe Details)
+						</h2>
+						<div className='space-y-8'>
+							{['breakfast', 'lunch', 'dinner', 'snack'].map((type) => {
+								const meal = meals[type];
+								if (!meal) return null;
+
+								const hasIngredients = meal.recipe?.ingredients && meal.recipe.ingredients.length > 0;
+								const hasInstructions = meal.instructions && meal.instructions.length > 0;
+								const isMissingDetails = !hasIngredients || !hasInstructions;
+
+								return (
+									<div key={type} className='border-b border-emerald-50 pb-8 last:border-0'>
+										<div className='flex items-center justify-between mb-6'>
+											<h3 className='text-xl font-bold text-emerald-700 capitalize flex items-center gap-2'>
+												<span className='bg-emerald-100 text-emerald-700 px-3 py-1 rounded-lg text-sm'>
+													{type}
+												</span>
+												{meal.name}
+											</h3>
+											<div className="flex gap-2">
+												{(!isMissingDetails) && (
+													<Button 
+														variant="outline" 
+														size="sm"
+														className="text-amber-600 border-amber-200 hover:bg-amber-50"
+														onClick={() => generateMealDetails(type)}
+														disabled={loadingInstructions === type}
+													>
+														{loadingInstructions === type ? (
+															<><Spinner /> Updating...</>
+														) : (
+															'🔄 Update'
+														)}
+													</Button>
+												)}
+												{(isMissingDetails) && (
+													<Button 
+														variant="outline" 
+														size="sm"
+														className="text-emerald-600 border-emerald-200 hover:bg-emerald-50"
+														onClick={() => generateMealDetails(type)}
+														disabled={loadingInstructions === type}
+													>
+														{loadingInstructions === type ? (
+															<><Spinner /> Generating...</>
+														) : (
+															'🪄 Generate'
+														)}
+													</Button>
+												)}
+											</div>
+										</div>
+										
+										<div className="grid md:grid-cols-2 gap-8">
+											{/* Ingredients Section */}
+											<div>
+												<h4 className="font-bold text-emerald-800 mb-3 flex items-center gap-2">
+													🥗 Bahan-bahan
+												</h4>
+												{hasIngredients ? (
+													<ul className='space-y-1.5'>
+														{meal.recipe.ingredients.map((item: string, i: number) => (
+															<li key={i} className='flex items-start gap-2 text-gray-700 text-sm'>
+																<span className='mt-1.5 w-1.5 h-1.5 bg-emerald-400 rounded-full flex-shrink-0' />
+																<span>{item}</span>
+															</li>
+														))}
+													</ul>
+												) : (
+													<p className='text-gray-500 italic text-sm'>
+														Bahan-bahan belum tersedia.
+													</p>
+												)}
+											</div>
+
+											{/* Instructions Section */}
+											<div>
+												<h4 className="font-bold text-emerald-800 mb-3 flex items-center gap-2">
+													🍳 Langkah Memasak
+												</h4>
+												{hasInstructions ? (
+													<ul className='space-y-3'>
+														{meal.instructions.map((step: string, i: number) => (
+															<li key={i} className='flex gap-3 text-gray-700 text-sm'>
+																<span className='flex-shrink-0 w-5 h-5 bg-emerald-50 text-emerald-600 rounded-full flex items-center justify-center text-xs font-bold'>
+																	{i + 1}
+																</span>
+																<span>{step}</span>
+															</li>
+														))}
+													</ul>
+												) : (
+													<p className='text-gray-500 italic text-sm'>
+														Instruksi memasak belum tersedia.
+													</p>
+												)}
+											</div>
+										</div>
+
+										{isMissingDetails && (
+											<div className="mt-4 p-3 bg-emerald-50 rounded-lg border border-emerald-100 text-emerald-700 text-xs text-center">
+												Klik "Generate" untuk melengkapi detail bahan dan cara memasak.
+											</div>
+										)}
+									</div>
+								);
+							})}
+						</div>
+					</div>
+				)}
+
 				<div className='flex justify-end'>
 					{isReg ? (
 						<div className='flex gap-2'>

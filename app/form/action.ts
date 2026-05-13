@@ -64,6 +64,8 @@ export async function input(prevState: any, formData: FormData) {
 	- Name (appealing, specific)
 	- Brief description
 	- Calories, Protein (g), Carbs (g), Fats (g)
+	- Recipe (saved in 'recipe' key as an object containing 'ingredients' as an array of strings)
+	- Cooking instructions in Indonesian language (Bahasa Indonesia) (saved in 'instructions' key as an array of strings)
 
 	Requirements:
 	- No meal repetition within 7 days
@@ -84,6 +86,8 @@ export async function input(prevState: any, formData: FormData) {
 	- breakfast, lunch, dinner, and snack should saved inside a 'meals' key
 	- Snack should save in 'snack' key without added 's'
 	- Give information about ingredients for the food listed and save it in 'grocery' key, also give category for each ingredient
+	- instructions should be clear, step-by-step cooking guide in Indonesian language (Bahasa Indonesia)
+	- ingredients in recipe should also be in Indonesian language (Bahasa Indonesia)
 	- The category should saved as key, not in value, and the item should save as array inside the key. (IMPORTANT!)
 	- Provide quantity for each item and add the quantity after the name of the item (don't separate quantity into another key)
 	- Provide estimated grocery total in Rupiah and save it in 'grocery_total_rupiah' key (IMPORTANT!)
@@ -162,7 +166,8 @@ export async function input(prevState: any, formData: FormData) {
 								proteins: meal.proteins || 0,
 								carbs: meal.carbs || 0,
 								fats: meal.fats || 0,
-								recipe: meal.recipe || {}
+								recipe: meal.recipe || {},
+								instructions: meal.instructions || []
 							})
 						}
 					})
