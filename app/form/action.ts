@@ -17,10 +17,11 @@ export const input = async (prevState: any, formData: FormData) => {
 		.map((cuisine) => capitalize(cuisine))
 		.join(', ')
 	const MODELS = [
-		'google/gemini-2.0-flash:free', // Stable free version
-		'openrouter/free',              // Auto-router for free models
-		'google/gemma-2-9b-it:free',    // High reliability free model
-		'meta-llama/llama-3.3-70b-instruct:free',
+		'inclusionai/ring-2.6-1t:free',
+		'baidu/cobuddy:free',
+		'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',
+		'poolside/laguna-xs.2:free',
+		'poolside/laguna-m.1:free',
 	]
 
 	let response: any = null
@@ -38,9 +39,10 @@ export const input = async (prevState: any, formData: FormData) => {
 			const timeoutId = setTimeout(() => controller.abort(), 30000); 
 
 			try {
-				response = await ai.chat.completions.create({
-					model: model,
-					messages: [{ role: 'user', content: `Generate a 7-day meal plan with the following parameters:
+				response = await ai.chat.send({
+					chatRequest: {
+						model: model,
+						messages: [{ role: 'user', content: `Generate a 7-day meal plan with the following parameters:
 
 	Goal: ${goal}
 	Daily Calories: ${calories} kcal
@@ -85,6 +87,7 @@ export const input = async (prevState: any, formData: FormData) => {
 
 	Return ONLY valid JSON with days, meals, and nutrition. No explanation.
 	`}],
+					}
 				}, { signal: controller.signal });
 			} finally {
 				clearTimeout(timeoutId);

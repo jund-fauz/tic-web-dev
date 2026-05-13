@@ -81,6 +81,28 @@ export default function Meals() {
 		return () => window.removeEventListener('resize', handleResize)
 	}, [])
 
+	useEffect(() => {
+		if (!initialized.current) {
+			if (localStorage.getItem('preferences')) {
+				setPreferences(
+					JSON.parse(localStorage.getItem('preferences') as string)
+				)
+				updateMeals(
+					JSON.parse(localStorage.getItem('meals') as string).days[day - 1]
+						.meals
+				)
+				setAverage(
+					JSON.parse(localStorage.getItem('meals') as string)
+						.average_daily_nutrition
+				)
+			} else redirect('/form')
+			if (date) {
+				date.setDate(date.getDate() + day)
+			}
+			initialized.current = true
+		}
+	}, [day, date, setPreferences, updateMeals])
+
 	if (!date) {
 		return (
 			<div className='min-h-screen bg-emerald-50 flex items-center justify-center'>
@@ -112,28 +134,6 @@ export default function Meals() {
 			</PaginationItem>
 		)
 	}
-
-	useEffect(() => {
-		if (!initialized.current) {
-			if (localStorage.getItem('preferences')) {
-				setPreferences(
-					JSON.parse(localStorage.getItem('preferences') as string)
-				)
-				updateMeals(
-					JSON.parse(localStorage.getItem('meals') as string).days[day - 1]
-						.meals
-				)
-				setAverage(
-					JSON.parse(localStorage.getItem('meals') as string)
-						.average_daily_nutrition
-				)
-			} else redirect('/form')
-			if (date) {
-				date.setDate(date.getDate() + day)
-			}
-			initialized.current = true
-		}
-	}, [])
 
 	const save = (params: any) => {
 		updateMeals((prev: any) => {
