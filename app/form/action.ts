@@ -17,11 +17,11 @@ export const input = async (prevState: any, formData: FormData) => {
 		.map((cuisine) => capitalize(cuisine))
 		.join(', ')
 	const MODELS = [
+		'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',
+		'poolside/laguna-m.1:free',
 		'inclusionai/ring-2.6-1t:free',
 		'baidu/cobuddy:free',
-		'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',
 		'poolside/laguna-xs.2:free',
-		'poolside/laguna-m.1:free',
 	]
 
 	let response: any = null
@@ -188,6 +188,7 @@ export const input = async (prevState: any, formData: FormData) => {
 			allergies,
 			cuisines,
 			dislikes,
+			username: user?.email?.split('@')[0] || 'User',
 		},
 	}
 }

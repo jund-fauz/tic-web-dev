@@ -82,11 +82,11 @@ export default function Meals() {
 	}, [])
 
 	useEffect(() => {
-		if (!initialized.current) {
+		if (!initialized.current && date) {
 			if (localStorage.getItem('preferences')) {
-				setPreferences(
-					JSON.parse(localStorage.getItem('preferences') as string)
-				)
+				const prefs = JSON.parse(localStorage.getItem('preferences') as string)
+				setPreferences(prefs)
+				
 				updateMeals(
 					JSON.parse(localStorage.getItem('meals') as string).days[day - 1]
 						.meals
@@ -96,9 +96,12 @@ export default function Meals() {
 						.average_daily_nutrition
 				)
 			} else redirect('/form')
-			if (date) {
-				date.setDate(date.getDate() + day)
-			}
+			
+			// Set the date for the current day correctly
+			const newDate = new Date(date)
+			newDate.setDate(newDate.getDate() + (day - 1))
+			setDate(newDate)
+			
 			initialized.current = true
 		}
 	}, [day, date, setPreferences, updateMeals])
@@ -159,65 +162,64 @@ export default function Meals() {
 			const { default: html2canvas } = await import('html2canvas-pro')
 			const { default: jsPDF } = await import('jspdf')
 
-			const pdf = new jsPDF({ format: 'a5' })
-			html2canvas(breakfastRef.current, { scale: 2 }).then((canvas) => {
+			const pdf = new jsPDF({ format: 'a5', unit: 'mm' })
+			const refs = [breakfastRef, lunchRef, dinnerRef, snackRef]
+			const mealTypes = ['Breakfast', 'Lunch', 'Dinner', 'Snack']
+
+			for (let i = 0; i < refs.length; i++) {
+				const element = refs[i].current
+				if (!element) continue
+
+				const canvas = await html2canvas(element, {
+					scale: 2,
+					useCORS: true,
+					backgroundColor: '#ffffff',
+				})
+				
+				if (i > 0) pdf.addPage()
+				
 				const imgData = canvas.toDataURL('image/png')
-				pdf.addImage(
-					imgData,
-					'PNG',
-					0,
-					0,
-					pdf.internal.pageSize.getWidth(),
-					pdf.internal.pageSize.getHeight()
-				)
-			})
-			html2canvas(lunchRef.current, { scale: 2 }).then((canvas) => {
-				const imgData = canvas.toDataURL('image/png')
-				pdf.addPage()
-				pdf.addImage(
-					imgData,
-					'PNG',
-					0,
-					0,
-					pdf.internal.pageSize.getWidth(),
-					pdf.internal.pageSize.getHeight()
-				)
-			})
-			html2canvas(dinnerRef.current, { scale: 2 }).then((canvas) => {
-				const imgData = canvas.toDataURL('image/png')
-				pdf.addPage()
-				pdf.addImage(
-					imgData,
-					'PNG',
-					0,
-					0,
-					pdf.internal.pageSize.getWidth(),
-					pdf.internal.pageSize.getHeight()
-				)
-			})
-			html2canvas(snackRef.current, { scale: 2 }).then((canvas) => {
-				const imgData = canvas.toDataURL('image/png')
-				pdf.addPage()
-				pdf.addImage(
-					imgData,
-					'PNG',
-					0,
-					0,
-					pdf.internal.pageSize.getWidth(),
-					pdf.internal.pageSize.getHeight()
-				)
-				if (!isShare) {
-					pdf.save('Meal Plan.pdf')
-					setPdfLoading(false)
-				} else {
-					const file = new File([pdf.output('blob')], 'Meal Plan.pdf', {
-						type: 'application/pdf',
-					})
-					navigator
-						.share({ files: [file] })
-						.finally(() => setShareLoading(false))
-				}
-			})
+				const pdfWidth = pdf.internal.pageSize.getWidth()
+				const pdfHeight = pdf.internal.pageSize.getHeight()
+				
+				// Add a nice header to each page
+				pdf.setFillColor(16, 185, 129) // Emerald-500
+				pdf.rect(0, 0, pdfWidth, 20, 'F')
+				pdf.setTextColor(255, 255, 255)
+				pdf.setFontSize(14)
+				pdf.setFont('helvetica', 'bold')
+				pdf.text(`Meal Plan - ${mealTypes[i]}`, 10, 13)
+				
+				// Add the meal card image
+				const imgWidth = pdfWidth - 20
+				const imgHeight = (canvas.height * imgWidth) / canvas.width
+				pdf.addImage(imgData, 'PNG', 10, 25, imgWidth, imgHeight)
+				
+				// Add footer
+				pdf.setTextColor(150, 150, 150)
+				pdf.setFontSize(8)
+				pdf.setFont('helvetica', 'normal')
+				const dateStr = date?.toLocaleDateString('en-US', { 
+					weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' 
+				})
+				pdf.text(`Generated for ${preferences?.username || 'User'} on ${dateStr}`, 10, pdfHeight - 10)
+			}
+
+			const formattedDate = date?.toISOString().split('T')[0] || 'unknown_date'
+			const username = preferences?.username || 'User'
+			const filename = `Meal_Plan_${formattedDate}_${username}.pdf`
+
+			if (!isShare) {
+				pdf.save(filename)
+				setPdfLoading(false)
+			} else {
+				const file = new File([pdf.output('blob')], filename, {
+					type: 'application/pdf',
+				})
+				navigator
+					.share({ files: [file], title: 'My Meal Plan', text: `Check out my meal plan for ${formattedDate}` })
+					.finally(() => setShareLoading(false))
+			}
 		}
 	}
 
