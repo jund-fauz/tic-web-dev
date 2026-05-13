@@ -9,7 +9,9 @@ export default function MealToggle({ mealId, initialIsEaten }: { mealId: string,
   const [isEaten, setIsEaten] = useState(initialIsEaten);
   const [isPending, startTransition] = useTransition();
 
-  const handleToggle = () => {
+  const handleToggle = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
     const nextState = !isEaten;
     setIsEaten(nextState);
     
@@ -32,6 +34,7 @@ export default function MealToggle({ mealId, initialIsEaten }: { mealId: string,
         isPending && "opacity-50 cursor-not-allowed"
       )}
       title={isEaten ? "Mark as not eaten" : "Mark as eaten"}
+      aria-label={isEaten ? "Mark as not eaten" : "Mark as eaten"}
     >
       <CheckCircle2 className={cn(
         "w-5 h-5 transition-colors",

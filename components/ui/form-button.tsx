@@ -22,10 +22,10 @@ export function FormButton({
   return (
     <Button
       type="submit"
-      disabled={pending || props.disabled}
       variant={variant}
       className={cn("min-w-[100px]", className)}
       {...props}
+      disabled={pending || props.disabled}
     >
       {pending ? (
         <div className="flex items-center gap-2">

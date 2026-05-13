@@ -5,7 +5,9 @@ import { capitalize } from '@/lib/capitalize'
 import { clean } from '@/lib/jsoncleaner'
 import { createClient } from '@/utils/supabase/server'
 
-export const input = async (prevState: any, formData: FormData) => {
+import { MealInsert } from "@/types/database";
+
+export async function input(prevState: any, formData: FormData) {
 	const goal = capitalize(formData.get('goal')?.toString() as string)
 	const calories = formData.get('calories')
 	const diet = capitalize(formData.get('diet')?.toString() as string)
@@ -17,10 +19,11 @@ export const input = async (prevState: any, formData: FormData) => {
 		.map((cuisine) => capitalize(cuisine))
 		.join(', ')
 	const MODELS = [
-		'google/gemini-2.0-flash:free', // Stable free version
-		'openrouter/free',              // Auto-router for free models
-		'google/gemma-2-9b-it:free',    // High reliability free model
-		'meta-llama/llama-3.3-70b-instruct:free',
+		'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',
+		'poolside/laguna-m.1:free',
+		'inclusionai/ring-2.6-1t:free',
+		'baidu/cobuddy:free',
+		'poolside/laguna-xs.2:free',
 	]
 
 	let response: any = null
@@ -32,14 +35,17 @@ export const input = async (prevState: any, formData: FormData) => {
 		const startTime = Date.now()
 		try {
 			console.log(`Trying AI model: ${model}...`)
-			
+
 			// Increased timeout to 30s as free models can be slow
 			const controller = new AbortController();
-			const timeoutId = setTimeout(() => controller.abort(), 30000); 
+			const timeoutId = setTimeout(() => controller.abort(), 30000);
 
-			response = await ai.chat.completions.create({
-				model: model,
-				messages: [{ role: 'user', content: `Generate a 7-day meal plan with the following parameters:
+			try {
+				response = await ai.chat.send({
+					chatRequest: {
+						model: model,
+						messages: [{
+							role: 'user', content: `Generate a 7-day meal plan with the following parameters:
 
 	Goal: ${goal}
 	Daily Calories: ${calories} kcal
@@ -58,6 +64,8 @@ export const input = async (prevState: any, formData: FormData) => {
 	- Name (appealing, specific)
 	- Brief description
 	- Calories, Protein (g), Carbs (g), Fats (g)
+	- Recipe (saved in 'recipe' key as an object containing 'ingredients' as an array of strings)
+	- Cooking instructions in Indonesian language (Bahasa Indonesia) (saved in 'instructions' key as an array of strings)
 
 	Requirements:
 	- No meal repetition within 7 days
@@ -78,15 +86,19 @@ export const input = async (prevState: any, formData: FormData) => {
 	- breakfast, lunch, dinner, and snack should saved inside a 'meals' key
 	- Snack should save in 'snack' key without added 's'
 	- Give information about ingredients for the food listed and save it in 'grocery' key, also give category for each ingredient
+	- instructions should be clear, step-by-step cooking guide in Indonesian language (Bahasa Indonesia)
+	- ingredients in recipe should also be in Indonesian language (Bahasa Indonesia)
 	- The category should saved as key, not in value, and the item should save as array inside the key. (IMPORTANT!)
 	- Provide quantity for each item and add the quantity after the name of the item (don't separate quantity into another key)
 	- Provide estimated grocery total in Rupiah and save it in 'grocery_total_rupiah' key (IMPORTANT!)
 
 	Return ONLY valid JSON with days, meals, and nutrition. No explanation.
 	`}],
-			}, { signal: controller.signal });
-			
-			clearTimeout(timeoutId);
+					}
+				}, { signal: controller.signal });
+			} finally {
+				clearTimeout(timeoutId);
+			}
 
 			if (response?.choices?.[0]?.message?.content) {
 				console.log(`Success with ${model} in ${Date.now() - startTime}ms`)
@@ -108,12 +120,12 @@ export const input = async (prevState: any, formData: FormData) => {
 
 	const content = response.choices[0].message.content
 	const cleanedContent = clean(content)
-	
+
 	let planData;
 	try {
 		planData = JSON.parse(cleanedContent)
 	} catch (e) {
-		console.error("Failed to parse AI JSON:", cleanedContent)
+		console.error("Failed to parse AI JSON. Payload length:", cleanedContent.length, "Preview:", cleanedContent.substring(0, 100))
 		throw new Error("AI returned invalid data format. Please try again.")
 	}
 
@@ -122,51 +134,82 @@ export const input = async (prevState: any, formData: FormData) => {
 	const { data: { user } } = await supabase.auth.getUser()
 
 	if (user) {
-		try {
-			const { data: plan, error: planError } = await supabase
-				.from("meal_plans")
-				.insert({
-					user_id: user.id,
-					week_start_date: new Date().toISOString().split('T')[0],
-					status: 'planned'
-				})
-				.select()
-				.single()
+		const { data: plan, error: planError } = await supabase
+			.from("meal_plans")
+			.insert({
+				user_id: user.id,
+				week_start_date: new Date().toISOString().split('T')[0],
+				status: 'planned',
+				groceries: planData.grocery || {},
+				grocery_total_rupiah: planData.grocery_total_rupiah || 0
+			})
+			.select()
+			.single()
 
-			if (!planError && plan) {
-				const mealsToInsert: any[] = []
-				if (planData.days && Array.isArray(planData.days)) {
-					planData.days.forEach((day: any, index: number) => {
-						const dayNumber = index + 1
-						if (day.meals) {
-							Object.entries(day.meals).forEach(([mealType, meal]: [string, any]) => {
-								if (meal && meal.name) {
-									mealsToInsert.push({
-										meal_plan_id: plan.id,
-										day_number: dayNumber,
-										meal_type: mealType,
-										name: meal.name,
-										description: meal.description || "",
-										calories: meal.calories || 0,
-										proteins: meal.proteins || 0,
-										carbs: meal.carbs || 0,
-										fats: meal.fats || 0,
-										recipe: meal.recipe || {}
-									})
-								}
+		if (planError || !plan) {
+			console.error("Error creating meal plan:", planError)
+			throw new Error("Failed to create meal plan record.")
+		}
+
+		// Insert into meal_groceries for structured access if needed
+		if (planData.grocery) {
+			const groceryInserts = Object.entries(planData.grocery).map(([category, items]) => ({
+				meal_plan_id: plan.id,
+				category,
+				items: items
+			}))
+			
+			if (groceryInserts.length > 0) {
+				const { error: groceryError } = await supabase.from("meal_groceries").insert(groceryInserts)
+				if (groceryError) console.error("Error inserting meal groceries:", groceryError)
+			}
+		}
+
+		const mealsToInsert: MealInsert[] = []
+		if (planData.days && Array.isArray(planData.days)) {
+			planData.days.forEach((day: any, index: number) => {
+				const dayNumber = index + 1
+				if (day.meals) {
+					Object.entries(day.meals).forEach(([mealType, meal]: [string, any]) => {
+						if (meal && meal.name) {
+							mealsToInsert.push({
+								meal_plan_id: plan.id,
+								day_number: dayNumber,
+								meal_type: mealType as 'breakfast' | 'lunch' | 'dinner' | 'snack',
+								name: meal.name,
+								description: meal.description || "",
+								calories: meal.calories || 0,
+								proteins: meal.proteins || 0,
+								carbs: meal.carbs || 0,
+								fats: meal.fats || 0,
+								recipe: meal.recipe || {},
+								instructions: meal.instructions || []
 							})
 						}
 					})
 				}
+			})
+		}
 
-				if (mealsToInsert.length > 0) {
-					await supabase.from("meals").insert(mealsToInsert)
+		if (mealsToInsert.length > 0) {
+			const { error: mealsError } = await supabase.from("meals").insert(mealsToInsert)
+			if (mealsError) {
+				console.error("Error inserting meals:", mealsError)
+				// Compensating logic: delete the orphan plan
+				try {
+					await supabase.from("meal_plans").delete().eq("id", plan.id)
+				} catch (cleanupError) {
+					console.error(`Failed to cleanup orphan meal plan ${plan.id}:`, cleanupError)
 				}
+				throw new Error("Failed to save meals to the plan.")
 			}
-		} catch (error) {
-			console.error("Error saving plan to Supabase:", error)
 		}
 	}
+
+	const userEmail = user?.email || 'User'
+	const username = (userEmail && typeof userEmail === 'string' && userEmail.includes('@')) 
+		? userEmail.split('@')[0] 
+		: userEmail
 
 	return {
 		...prevState,
@@ -178,6 +221,8 @@ export const input = async (prevState: any, formData: FormData) => {
 			allergies,
 			cuisines,
 			dislikes,
+			email: userEmail,
+			username,
 		},
 	}
 }

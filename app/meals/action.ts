@@ -1,6 +1,7 @@
 "use server";
 
 import { generateContent } from "@/lib/ai";
+import { clean } from "@/lib/jsoncleaner";
 
 export async function regenerateMealAction(preferences: any, currentMeals: any) {
   const prompt = `Regenerate one meal plan alternative for breakfast, lunch, dinner, and snack with the following parameters:
@@ -42,6 +43,8 @@ export async function regenerateMealAction(preferences: any, currentMeals: any) 
     - Name (appealing, specific)
     - Brief description
     - Calories, Protein (g), Carbs (g), Fats (g) (Each nutrition should same as provided above)
+    - Recipe (saved in 'recipe' key as an object containing 'ingredients' as an array of strings)
+    - Cooking instructions in Indonesian language (Bahasa Indonesia) (saved in 'instructions' key as an array of strings)
 
     Requirements:
     - Balanced macros:
@@ -57,6 +60,8 @@ export async function regenerateMealAction(preferences: any, currentMeals: any) 
     - Give average calories, proteins, carbs, and fats per day
     - All protein data should saved in 'proteins' key
     - Meals should save in 'meals' key and saved as Array (IMPORTANT!)
+    - instructions and ingredients should be in Indonesian language (Bahasa Indonesia)
+    - instructions should be clear, step-by-step cooking guide
     - Should generate 4 items for breakfast, lunch, dinner, and snack (IMPORTANT!)
     - Don't provide average daily nutrition
     - Don't save meals with meal's name for key
@@ -68,9 +73,45 @@ export async function regenerateMealAction(preferences: any, currentMeals: any) 
 
   try {
     const responseText = await generateContent(prompt);
-    return { data: responseText, success: true };
+    
+    // Validate that responseText is valid JSON
+    try {
+      const data = JSON.parse(clean(responseText as string));
+      return { data, success: true };
+    } catch (parseError) {
+      console.error("Failed to parse regenerated meal JSON:", responseText);
+      return { data: null, success: false, error: 'invalid JSON' };
+    }
   } catch (error: any) {
     console.error("Server Action Regeneration Error:", error.message);
+    return { success: false, error: error.message };
+  }
+}
+
+export async function generateMealDetailsAction(mealName: string, description: string) {
+  const prompt = `Generate cooking details and required grocery items for "${mealName}" (${description}) in Indonesian language (Bahasa Indonesia).
+    Return ONLY valid JSON with the following structure:
+    {
+      "ingredients": ["bahan 1...", "bahan 2..."],
+      "instructions": ["langkah 1...", "langkah 2..."],
+      "grocery_items": [
+        {"category": "Vegetables", "item": "Nama Bahan 1 (Jumlah)"},
+        {"category": "Meat", "item": "Nama Bahan 2 (Jumlah)"}
+      ]
+    }
+    No explanation.`;
+
+  try {
+    const responseText = await generateContent(prompt);
+    try {
+      const data = JSON.parse(clean(responseText as string));
+      return { data, success: true };
+    } catch (parseError) {
+      console.error("Failed to parse meal details JSON:", responseText);
+      return { data: null, success: false, error: 'invalid JSON' };
+    }
+  } catch (error: any) {
+    console.error("Generate Meal Details Error:", error.message);
     return { success: false, error: error.message };
   }
 }

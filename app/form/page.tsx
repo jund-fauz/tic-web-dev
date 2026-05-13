@@ -112,7 +112,7 @@ export default function Preferences() {
 									htmlFor='goal'
 									className='text-lg font-semibold text-emerald-900 mb-4'
 								>
-									🎯 What's your goal?
+									🎯 What&apos;s your goal?
 								</FieldLabel>
 								<RadioGroup
 									defaultValue={
