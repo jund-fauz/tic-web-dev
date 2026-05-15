@@ -12,19 +12,28 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { login } from "./action";
-import { useActionState } from "react";
-import { useEffect, useState } from "react";
+import { useActionState, useEffect, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
+import { toast } from "sonner";
+import { Toaster } from "@/components/ui/sonner";
 
 export default function LoginPage() {
   const [state, formAction] = useActionState(login, { message: "" });
   const [isOpen, setIsOpen] = useState(false);
+  const params = useSearchParams()
+  const redirectFrom = params.get('redirect_from')
 
   useEffect(() => {
     if (state?.message) {
       setIsOpen(true);
     }
   }, [state]);
+
+  useEffect(() => {
+    if (redirectFrom === 'register')
+      toast('Registration successful! Check your email for confirmation link!')
+  }, [])
 
   return (
     <div className="flex justify-center items-center h-screen">
@@ -61,6 +70,7 @@ export default function LoginPage() {
           </DialogHeader>
         </DialogContent>
       </Dialog>
+      <Toaster />
     </div>
   );
 }

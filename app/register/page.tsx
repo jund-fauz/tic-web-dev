@@ -27,8 +27,12 @@ export default function RegisterPage() {
 
   return (
     <div className="flex justify-center items-center h-screen">
-      <form action={formAction} className="p-4 border rounded-lg shadow-md">
+      <form action={formAction} className="p-6 border rounded-lg shadow-md">
         <h1 className="text-2xl font-bold mb-4">Register</h1>
+        <div className="mb-4">
+          <Label htmlFor="first_name">Nama</Label>
+          <Input id="first_name" name="first_name" type="text" required />
+        </div>
         <div className="mb-4">
           <Label htmlFor="email">Email</Label>
           <Input id="email" name="email" type="email" required />

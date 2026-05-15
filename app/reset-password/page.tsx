@@ -27,7 +27,7 @@ export default function ResetPasswordPage() {
 
   return (
     <div className="flex justify-center items-center h-screen">
-      <form action={formAction} className="p-4 border rounded-lg shadow-md">
+      <form action={formAction} className="p-6 border rounded-lg shadow-md">
         <h1 className="text-2xl font-bold mb-4">Reset Password</h1>
         <div className="mb-4">
           <Label htmlFor="password">New Password</Label>

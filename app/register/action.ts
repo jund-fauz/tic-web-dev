@@ -34,7 +34,7 @@ export async function register(prevState: any, formData: FormData) {
 
   if (data.user) {
     // User created successfully, redirect to dashboard
-    redirect("/dashboard");
+    redirect("/login?redirect_from=register");
   } else {
     // Email confirmation required
     return { message: "Check your email for confirmation link!" };
