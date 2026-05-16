@@ -6,13 +6,14 @@ import { Separator } from '@/components/ui/separator'
 import { Spinner } from '@/components/ui/spinner'
 import { ArrowLeft, ShoppingCart } from 'lucide-react'
 import { useRef, useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 
 import { createClient } from '@/utils/supabase/client'
-import { redirect } from 'next/navigation'
 import { estimateGroceryTotal, updatePlanTotal } from './action'
 
 export default function Grocery() {
 	const supabase = createClient()
+	const router = useRouter()
 	const [isMounted, setIsMounted] = useState(false)
 	const [checkedItems, setCheckedItems] = useState<Record<string, boolean>>({})
 	const [grocery, setGrocery] = useState<any>(undefined)
@@ -60,7 +61,7 @@ export default function Grocery() {
 
 			const { data: { user } } = await supabase.auth.getUser()
 			if (!user) {
-				redirect('/login')
+				router.push('/login')
 				return
 			}
 
@@ -254,7 +255,7 @@ export default function Grocery() {
 			const addFooter = () => {
 				pdf.setTextColor(150, 150, 150)
 				pdf.setFontSize(8)
-				pdf.text(`Generated for ${email} - MealPlanner AI`, pdfWidth / 2, pdfHeight - 10, { align: 'center' })
+				pdf.text(`Generated for ${email} - Weekly Meal Planner AI`, pdfWidth / 2, pdfHeight - 10, { align: 'center' })
 			}
 
 			// Paging logic
