@@ -21,7 +21,7 @@ import {
 import { Separator } from '@/components/ui/separator'
 import { ArrowLeft, Calendar, TrendingUp, Utensils } from 'lucide-react'
 import Link from 'next/link'
-import { redirect, usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { JSX, useEffect, useRef, useState } from 'react'
 import { useImmer } from 'use-immer'
 import { Spinner } from '@/components/ui/spinner'
@@ -41,6 +41,7 @@ import { Meal, MealPlan } from '@/types/database'
 
 export default function Meals() {
 	const supabase = createClient()
+	const router = useRouter()
 	const [preferences, setPreferences] = useState<any>(undefined)
 	const [meals, updateMeals] = useImmer<any>(undefined)
 	const [average, setAverage] = useState<any>(undefined)
@@ -193,7 +194,7 @@ export default function Meals() {
 			const { data: { user } } = await supabase.auth.getUser()
 			
 			if (!user) {
-				redirect('/login')
+				router.push('/login')
 				return
 			}
 
@@ -215,8 +216,8 @@ export default function Meals() {
 						updateMeals(mealData.days[day - 1].meals)
 						setAverage(mealData.average_daily_nutrition)
 					}
-				} else {
-					redirect('/form')
+					} else {
+					router.push('/form')
 				}
 			} else {
 				const plan = mealPlans[0] as MealPlan
