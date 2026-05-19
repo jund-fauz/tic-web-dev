@@ -491,7 +491,6 @@ export default function Meals() {
 				if (!resultAction.success) throw new Error(resultAction.error)
 
 				const result = resultAction.data.meals
-				console.log(result)
 				updateMeals((prev: any) => {
 					;(prev.breakfast = result[0]),
 						(prev.lunch = result[1]),

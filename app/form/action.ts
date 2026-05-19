@@ -1,16 +1,38 @@
 'use server'
 
-import { ai } from '@/lib/ai'
+import { generateContent } from '@/lib/ai'
 import { capitalize } from '@/lib/capitalize'
 import { clean } from '@/lib/jsoncleaner'
 import { createClient } from '@/utils/supabase/server'
 
 import { MealInsert } from "@/types/database";
 
+function getDietGuidance(diet: string) {
+	switch (diet.toLowerCase()) {
+		case 'low-carb':
+			return `
+	Low-carb requirement:
+	- Prioritize high-protein meals with clearly lower carbohydrates.
+	- Keep carbohydrates lower than protein for each meal whenever realistic.
+	- Avoid rice, noodles, bread, sugary sauces, and flour-heavy sides as the main component.
+	- Prefer eggs, chicken, fish, beef, tofu, tempeh, non-starchy vegetables, and healthy fats.
+	- Do not generate meals that are dominated by carbohydrates.`
+		case 'keto':
+			return `
+	Keto requirement:
+	- Keep carbohydrates very low.
+	- Prioritize protein, healthy fats, and low-carb vegetables.
+	- Avoid rice, noodles, bread, potatoes, sugar, and sweet sauces.`
+		default:
+			return ''
+	}
+}
+
 export async function input(prevState: any, formData: FormData) {
 	const goal = capitalize(formData.get('goal')?.toString() as string)
 	const calories = formData.get('calories')
-	const diet = capitalize(formData.get('diet')?.toString() as string)
+	const rawDiet = formData.get('diet')?.toString() as string
+	const diet = capitalize(rawDiet)
 	const dislikes = capitalize(formData.get('dislikes')?.toString() as string)
 	const cuisineLists = ['indonesian', 'western', 'asian', 'mediterranean']
 	let allergies = capitalize(formData.get('allergies')?.toString() as string)
@@ -18,34 +40,11 @@ export async function input(prevState: any, formData: FormData) {
 		.filter((cuisine) => formData.get(cuisine))
 		.map((cuisine) => capitalize(cuisine))
 		.join(', ')
-	const MODELS = [
-		'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',
-		'poolside/laguna-m.1:free',
-		'inclusionai/ring-2.6-1t:free',
-		'baidu/cobuddy:free',
-		'poolside/laguna-xs.2:free',
-	]
+	const dietGuidance = getDietGuidance(rawDiet)
 
-	let response: any = null
-	let lastError: any = null
+	console.log(`Starting AI generation process for goal: ${goal}, calories: ${calories} kcal, diet: ${diet}`)
 
-	console.log("Starting AI generation process...")
-
-	for (const model of MODELS) {
-		const startTime = Date.now()
-		try {
-			console.log(`Trying AI model: ${model}...`)
-
-			// Increased timeout to 30s as free models can be slow
-			const controller = new AbortController();
-			const timeoutId = setTimeout(() => controller.abort(), 30000);
-
-			try {
-				response = await ai.chat.send({
-					chatRequest: {
-						model: model,
-						messages: [{
-							role: 'user', content: `Generate a 7-day meal plan with the following parameters:
+	const prompt = `Generate a 7-day meal plan with the following parameters:
 
 	Goal: ${goal}
 	Daily Calories: ${calories} kcal
@@ -53,6 +52,9 @@ export async function input(prevState: any, formData: FormData) {
 	Allergies: ${allergies}
 	Cuisine Preference: ${cuisines}
 	Foods to Avoid: ${dislikes}
+
+	Language:
+	- ALL meal names, descriptions, recipe ingredients, and cooking instructions MUST be in Indonesian language (Bahasa Indonesia).
 
 	For each day, provide:
 	- Breakfast (~25% of daily calories)
@@ -76,6 +78,7 @@ export async function input(prevState: any, formData: FormData) {
 	- Realistic meals (not overly complicated)
 	- Consider cuisine preference
 	- Avoid listed allergens & dislikes
+	${dietGuidance}
 
 	Rules:
 	- carbs, fats, and proteins key should not end with _g
@@ -93,40 +96,22 @@ export async function input(prevState: any, formData: FormData) {
 	- Provide estimated grocery total in Rupiah and save it in 'grocery_total_rupiah' key (IMPORTANT!)
 
 	Return ONLY valid JSON with days, meals, and nutrition. No explanation.
-	`}],
-					}
-				}, { signal: controller.signal });
-			} finally {
-				clearTimeout(timeoutId);
-			}
+	`;
 
-			if (response?.choices?.[0]?.message?.content) {
-				console.log(`Success with ${model} in ${Date.now() - startTime}ms`)
-				break
-			} else {
-				throw new Error("Empty response content")
-			}
-		} catch (err: any) {
-			const duration = Date.now() - startTime
-			console.error(`AI Model failed (${model}) after ${duration}ms:`, err.name === 'AbortError' ? 'Timeout' : err.message)
-			lastError = err
-			response = null // Reset for next iteration
-		}
-	}
-
-	if (!response || !response.choices?.[0]?.message?.content) {
-		throw new Error(`All AI models failed or returned empty content. Last error: ${lastError?.message}`)
-	}
-
-	const content = response.choices[0].message.content
-	const cleanedContent = clean(content)
-
-	let planData;
+	let planData: any;
 	try {
-		planData = JSON.parse(cleanedContent)
-	} catch (e) {
-		console.error("Failed to parse AI JSON. Payload length:", cleanedContent.length, "Preview:", cleanedContent.substring(0, 100))
-		throw new Error("AI returned invalid data format. Please try again.")
+		const content = await generateContent(prompt);
+		const cleanedContent = clean(content)
+
+		try {
+			planData = JSON.parse(cleanedContent)
+		} catch (e) {
+			console.error("Failed to parse AI JSON. Payload length:", cleanedContent.length, "Preview:", cleanedContent.substring(0, 100))
+			throw new Error("AI returned invalid data format. Please try again.")
+		}
+	} catch (error) {
+		console.error("AI Generation failed:", error)
+		throw error
 	}
 
 	// Save to Supabase if user is logged in

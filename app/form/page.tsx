@@ -253,10 +253,13 @@ export default function Preferences() {
 											<SelectItem value='vegetarian'>Vegetarian</SelectItem>
 											<SelectItem value='vegan'>Vegan</SelectItem>
 											<SelectItem value='keto'>Keto</SelectItem>
-											<SelectItem value='low-carb'>Low-Carb</SelectItem>
+											<SelectItem value='low-carb'>Low-Carb (High-Protein Focus)</SelectItem>
 										</SelectGroup>
 									</SelectContent>
 								</Select>
+								<p className='mt-2 text-sm text-purple-700'>
+									`Low-Carb` prioritizes higher protein, lower carbohydrates, and fewer rice/noodle/bread-heavy meals.
+								</p>
 							</Field>
 							<Field className='bg-linear-to-br from-orange-50 to-orange-100 p-6 rounded-xl border border-orange-200'>
 								<FieldLabel

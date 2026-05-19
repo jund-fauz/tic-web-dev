@@ -1,9 +1,8 @@
 import { Clock, Utensils } from 'lucide-react'
 import { Button } from './ui/button'
-import { ai } from '@/lib/ai'
 import { Dispatch, RefObject, useState } from 'react'
 import { Spinner } from './ui/spinner'
-import { clean } from '@/lib/jsoncleaner'
+import { generateMealAlternativesAction } from '@/app/meals/action'
 
 export function MealCard({
 	index,
@@ -47,55 +46,23 @@ export function MealCard({
 
 	const swap = async () => {
 		setLoading(true)
-		const response = await (ai.models as any)
-			.generateContent({
-				model: 'gemini-2.5-flash',
-				contents: `Regenerate 3 ${mealType} meal plan alternative with the following parameters:
-		
-			Goal: ${preferences.goal}
-			Daily Calories: ${preferences.calories} kcal
-			Diet Type: ${preferences.diet}
-			Allergies: ${preferences.allergies}
-			Cuisine Preference: ${preferences.cuisines}
-			Foods to Avoid: ${preferences.dislikes}
-		
-			Nutrition:
-			- Calories: ${calories}
-			- Proteins: ${proteins}
-			- Carbs: ${carbs}
-			- Fats: ${fats}
-		
-			Meal should include:
-			- Name (appealing, specific)
-			- Brief description
-			- Calories, Protein (g), Carbs (g), Fats (g) (Each nutrition should same as provided above)
-		
-			Requirements:
-			- Balanced macros:
-			  * Weight Loss: 30% protein, 40% carbs, 30% fat
-			  * Muscle Gain: 30% protein, 40% carbs, 30% fat
-			  * Maintenance: 25% protein, 45% carbs, 30% fat
-			- Realistic meals (not overly complicated)
-			- Consider cuisine preference
-			- Avoid listed allergens & dislikes
-		
-			Rules:
-			- carbs, fats, and proteins key should not end with _g
-			- Give average calories, proteins, carbs, and fats per day
-			- All protein data should saved in 'proteins' key
-			- Meals should save in 'meals' key and saved as Array
-			- Don't provide average daily nutrition
-			- Don't save meals with meal's name for key
-			- Don't use capital letter as key
-			- Don't save all nutrition in separate 'nutrition' key
-		
-			Return ONLY valid JSON with meals and nutrition. No explanation.
-			`,
-			})
-			.finally(() => setLoading(false))
-		const result = JSON.parse(clean(response.text as string)).meals
-		setMealAlt({ type: mealType, meals: result })
-		setOpen(true)
+		try {
+			const result = await generateMealAlternativesAction(
+				mealType,
+				{ name, description, calories, proteins, carbs, fats },
+				preferences
+			)
+			if (!result.success || !result.data?.meals) {
+				throw new Error(result.error || 'Invalid meal alternatives response')
+			}
+			setMealAlt({ type: mealType, meals: result.data.meals })
+			setOpen(true)
+		} catch (error) {
+			console.error('Failed to swap meal:', error)
+			alert('Failed to generate alternative meals. Please try again.')
+		} finally {
+			setLoading(false)
+		}
 	}
 
 	return (

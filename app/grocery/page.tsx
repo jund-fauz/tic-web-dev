@@ -9,7 +9,7 @@ import { useRef, useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 
 import { createClient } from '@/utils/supabase/client'
-import { estimateGroceryTotal, updatePlanTotal } from './action'
+import { estimateGroceryTotal, updatePlanTotal, generateFullGroceryListAction } from './action'
 
 export default function Grocery() {
 	const supabase = createClient()
@@ -24,8 +24,38 @@ export default function Grocery() {
 	const [pdfLoading, setPdfLoading] = useState(false)
 	const [shareLoading, setShareLoading] = useState(false)
 	const [isEstimating, setIsEstimating] = useState(false)
+	const [isGeneratingList, setIsGeneratingList] = useState(false)
 	const [loading, setLoading] = useState(true)
 	const divRef = useRef(null)
+
+	const handleGenerateFullList = async () => {
+		if (!planId) return
+		
+		setIsGeneratingList(true)
+		try {
+			const result = await generateFullGroceryListAction(planId)
+			if (result.success && result.data) {
+				setGrocery(result.data.groceries)
+				setGroceryTotal(result.data.grocery_total_rupiah)
+				
+				// Update localStorage
+				const savedMeals = localStorage.getItem('meals')
+				if (savedMeals) {
+					const parsed = JSON.parse(savedMeals)
+					parsed.grocery = result.data.groceries
+					parsed.grocery_total_rupiah = result.data.grocery_total_rupiah
+					localStorage.setItem('meals', JSON.stringify(parsed))
+				}
+			} else {
+				alert(result.error || 'Gagal membuat daftar belanja.')
+			}
+		} catch (error) {
+			console.error('Error generating grocery list:', error)
+			alert('Terjadi kesalahan saat membuat daftar belanja.')
+		} finally {
+			setIsGeneratingList(false)
+		}
+	}
 
 	const handleEstimateTotal = async () => {
 		if (!grocery || !planId) return
@@ -398,11 +428,20 @@ export default function Grocery() {
 							</div>
 							<h3 className="text-xl font-bold text-emerald-900 mb-2">Daftar Belanja Kosong</h3>
 							<p className="text-emerald-600 max-w-md mx-auto mb-8">
-								Belum ada item dalam daftar belanja Anda. Pastikan Anda sudah membuat meal plan atau melengkapi detail resep.
+								Belum ada item dalam daftar belanja Anda. Anda bisa membuat daftar belanja secara otomatis berdasarkan semua menu makanan dalam rencana minggu ini.
 							</p>
-							<Button onClick={() => window.history.back()} variant="outline" className="border-emerald-200 text-emerald-700 hover:bg-emerald-50">
-								Kembali ke Meal Plan
-							</Button>
+							<div className="flex flex-col sm:flex-row gap-4 justify-center">
+								<Button 
+									onClick={handleGenerateFullList} 
+									disabled={isGeneratingList}
+									className="bg-emerald-600 hover:bg-emerald-700 text-white min-w-[200px]"
+								>
+									{isGeneratingList ? <><Spinner /> Generating...</> : '🪄 Buat Daftar Belanja'}
+								</Button>
+								<Button onClick={() => window.history.back()} variant="outline" className="border-emerald-200 text-emerald-700 hover:bg-emerald-50">
+									Kembali ke Meal Plan
+								</Button>
+							</div>
 						</div>
 					) : (
 						Object.entries(grocery)
@@ -473,6 +512,14 @@ export default function Grocery() {
 							disabled={isEstimating || !grocery}
 						>
 							{isEstimating ? 'Calculating...' : '🔄 Recalculate using real market prices'}
+						</Button>
+						<Button 
+							variant="link" 
+							className="text-xs text-blue-600 h-auto p-0 w-fit hover:text-blue-800 mt-1"
+							onClick={handleGenerateFullList}
+							disabled={isGeneratingList || !grocery}
+						>
+							{isGeneratingList ? 'Generating...' : '🪄 Regenerate full grocery list from meals'}
 						</Button>
 					</div>
 					<div className='flex gap-4'>
