@@ -2,6 +2,8 @@
 
 import { generateContent } from "@/lib/ai";
 import { clean } from "@/lib/jsoncleaner";
+import { createClient } from "@/utils/supabase/server";
+import { parseNumber } from "@/lib/utils";
 
 function getDietGuidance(diet: string) {
   const normalizedDiet = diet.toLowerCase();
@@ -29,7 +31,9 @@ function getDietGuidance(diet: string) {
 
 export async function regenerateMealAction(preferences: any, currentMeals: any) {
   const dietGuidance = getDietGuidance(preferences.diet || "");
-  const prompt = `Regenerate one meal plan alternative for breakfast, lunch, dinner, and snack with the following parameters:
+  const prompt = `LANGUAGE: ALL output must be in INDONESIAN (Bahasa Indonesia).
+  
+    Regenerate one meal plan alternative for breakfast, lunch, dinner, and snack with the following parameters:
 				
     Goal: ${preferences.goal}
     Daily Calories: ${preferences.calories} kcal
@@ -38,8 +42,11 @@ export async function regenerateMealAction(preferences: any, currentMeals: any) 
     Cuisine Preference: ${preferences.cuisines}
     Foods to Avoid: ${preferences.dislikes}
 
-    Language:
-    - ALL meal names, descriptions, recipe ingredients, and cooking instructions MUST be in Indonesian language (Bahasa Indonesia).
+    For each meal:
+    - Name (Indonesian)
+    - Description (Indonesian)
+    - Recipe ingredients (Indonesian)
+    - Cooking instructions (Indonesian)
 
     Total Nutrition:
     - Calories: ${
@@ -70,9 +77,12 @@ export async function regenerateMealAction(preferences: any, currentMeals: any) 
     Meal should include:
     - Name (appealing, specific)
     - Brief description
-    - Calories, Protein (g), Carbs (g), Fats (g) (Each nutrition should same as provided above)
+    - Calories, Proteins (g), Carbs (g), Fats (g) (Each nutrition should same as provided above)
     - Recipe (saved in 'recipe' key as an object containing 'ingredients' as an array of strings)
     - Cooking instructions in Indonesian language (Bahasa Indonesia) (saved in 'instructions' key as an array of strings)
+
+    Language:
+    - ALL meal names, descriptions, recipe ingredients, and cooking instructions MUST be in Indonesian language (Bahasa Indonesia).
 
     Requirements:
     - Balanced macros:
@@ -87,7 +97,7 @@ export async function regenerateMealAction(preferences: any, currentMeals: any) 
     Rules:
     - carbs, fats, and proteins key should not end with _g
     - Give average calories, proteins, carbs, and fats per day
-    - All protein data should saved in 'proteins' key
+    - All protein data should saved in 'proteins' key (ALWAYS use plural 'proteins')
     - Meals should save in 'meals' key and saved as Array (IMPORTANT!)
     - instructions and ingredients should be in Indonesian language (Bahasa Indonesia)
     - instructions should be clear, step-by-step cooking guide
@@ -106,6 +116,17 @@ export async function regenerateMealAction(preferences: any, currentMeals: any) 
     // Validate that responseText is valid JSON
     try {
       const data = JSON.parse(clean(responseText as string));
+      
+      // Resilient parsing for proteins/carbs/fats in each meal
+      if (data.meals && Array.isArray(data.meals)) {
+        data.meals = data.meals.map((m: any) => ({
+          ...m,
+          proteins: m.proteins || m.protein || 0,
+          carbs: m.carbs || m.carb || 0,
+          fats: m.fats || m.fat || 0
+        }));
+      }
+
       return { data, success: true };
     } catch (parseError) {
       console.error("Failed to parse regenerated meal JSON:", responseText);
@@ -119,7 +140,9 @@ export async function regenerateMealAction(preferences: any, currentMeals: any) 
 
 export async function generateMealAlternativesAction(mealType: string, meal: any, preferences: any) {
   const dietGuidance = getDietGuidance(preferences.diet || "");
-  const prompt = `Regenerate 3 ${mealType} meal plan alternative with the following parameters:
+  const prompt = `LANGUAGE: ALL output must be in INDONESIAN (Bahasa Indonesia).
+
+    Regenerate 3 ${mealType} meal plan alternative with the following parameters:
 
     Goal: ${preferences.goal}
     Daily Calories: ${preferences.calories} kcal
@@ -134,10 +157,13 @@ export async function generateMealAlternativesAction(mealType: string, meal: any
     - Carbs: ${meal.carbs}
     - Fats: ${meal.fats}
 
+    Language:
+    - ALL meal names and descriptions MUST be in Indonesian language (Bahasa Indonesia).
+
     Meal should include:
     - Name (appealing, specific)
     - Brief description
-    - Calories, Protein (g), Carbs (g), Fats (g) (Each nutrition should match the values provided above)
+    - Calories, Proteins (g), Carbs (g), Fats (g) (Each nutrition should match the values provided above)
 
     Requirements:
     - Balanced macros:
@@ -151,7 +177,7 @@ export async function generateMealAlternativesAction(mealType: string, meal: any
 
     Rules:
     - carbs, fats, and proteins key should not end with _g
-    - All protein data should be saved in 'proteins' key
+    - All protein data should be saved in 'proteins' key (ALWAYS use plural 'proteins')
     - Meals should be saved in 'meals' key as an array
     - Do not provide average daily nutrition
     - Do not save meals with the meal's name as a key
@@ -163,8 +189,19 @@ export async function generateMealAlternativesAction(mealType: string, meal: any
   try {
     const responseText = await generateContent(prompt);
     try {
-      const data = JSON.parse(clean(responseText as string));
-      return { data, success: true };
+      const rawData = JSON.parse(clean(responseText as string));
+      
+      // Resilient parsing for proteins/carbs/fats in each meal
+      if (rawData.meals && Array.isArray(rawData.meals)) {
+        rawData.meals = rawData.meals.map((m: any) => ({
+          ...m,
+          proteins: m.proteins || m.protein || 0,
+          carbs: m.carbs || m.carb || 0,
+          fats: m.fats || m.fat || 0
+        }));
+      }
+
+      return { data: rawData, success: true };
     } catch (parseError) {
       console.error("Failed to parse meal alternatives JSON:", responseText);
       return { data: null, success: false, error: "invalid JSON" };
@@ -203,6 +240,84 @@ export async function generateMealDetailsAction(mealName: string, description: s
     }
   } catch (error: any) {
     console.error("Generate Meal Details Error:", error.message);
+    return { success: false, error: error.message };
+  }
+}
+
+export async function saveSwappedMealAction(planId: string, dayNumber: number, mealType: string, mealData: any) {
+  const supabase = await createClient();
+  
+  const update = {
+    meal_plan_id: planId,
+    day_number: dayNumber,
+    meal_type: mealType as any,
+    name: mealData.name,
+    description: mealData.description,
+    calories: parseNumber(mealData.calories),
+    proteins: parseNumber(mealData.proteins || mealData.protein),
+    carbs: parseNumber(mealData.carbs || mealData.carb),
+    fats: parseNumber(mealData.fats || mealData.fat),
+    recipe: mealData.recipe || {},
+    instructions: mealData.instructions || []
+  };
+
+  try {
+    const { error } = await supabase
+      .from('meals')
+      .update(update)
+      .eq('meal_plan_id', planId)
+      .eq('day_number', dayNumber)
+      .eq('meal_type', mealType);
+    
+    if (error) throw error;
+    return { success: true };
+  } catch (error: any) {
+    console.error("Save Swapped Meal Error:", error.message);
+    return { success: false, error: error.message };
+  }
+}
+
+export async function saveRegeneratedDayAction(planId: string, dayNumber: number, newMeals: any) {
+  const supabase = await createClient();
+  
+  const mealTypes = ['breakfast', 'lunch', 'dinner', 'snack'] as const;
+  const updates = [];
+
+  for (let i = 0; i < mealTypes.length; i++) {
+    const type = mealTypes[i];
+    const mealData = newMeals[type];
+    
+    if (mealData) {
+      updates.push({
+        meal_plan_id: planId,
+        day_number: dayNumber,
+        meal_type: type,
+        name: mealData.name,
+        description: mealData.description,
+        calories: parseNumber(mealData.calories),
+        proteins: parseNumber(mealData.proteins || mealData.protein),
+        carbs: parseNumber(mealData.carbs || mealData.carb),
+        fats: parseNumber(mealData.fats || mealData.fat),
+        recipe: mealData.recipe || {},
+        instructions: mealData.instructions || []
+      });
+    }
+  }
+
+  try {
+    for (const update of updates) {
+      const { error } = await supabase
+        .from('meals')
+        .update(update)
+        .eq('meal_plan_id', planId)
+        .eq('day_number', dayNumber)
+        .eq('meal_type', update.meal_type);
+      
+      if (error) throw error;
+    }
+    return { success: true };
+  } catch (error: any) {
+    console.error("Save Regenerated Day Error:", error.message);
     return { success: false, error: error.message };
   }
 }

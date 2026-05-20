@@ -23,33 +23,17 @@ export default async function DashboardPage() {
   const { data: mealPlans, error } = await supabase
     .from("meal_plans")
     .select("*, meals(*)")
-    .order("week_start_date", { ascending: false }) as { data: MealPlan[] | null, error: PostgrestError | null };
+    .eq("user_id", user.id)
+    .order("created_at", { ascending: false }) as { data: MealPlan[] | null, error: PostgrestError | null };
 
   if (error) {
-    console.error("Error fetching meal plans:", JSON.stringify(error, null, 2));
-    // If the table doesn't exist, we should handle it gracefully
-    if (error.code === "PGRST116" || error.code === "42P01") {
-      return (
-        <div className="flex flex-col items-center justify-center min-h-[60vh] text-center space-y-4">
-          <div className="bg-red-50 p-6 rounded-xl border border-red-100 max-w-md">
-            <h2 className="text-xl font-bold text-red-800 mb-2">Database Not Ready</h2>
-            <p className="text-red-600 mb-4">
-              The `meal_plans` table was not found. Please make sure to run the database migrations in your Supabase project.
-            </p>
-            <div className="bg-white p-3 rounded border border-red-200 text-xs text-left overflow-auto font-mono">
-              Error Code: {error.code}<br/>
-              Message: {error.message}
-            </div>
-          </div>
-          <Button asChild variant="outline">
-            <Link href="/">Back to Home</Link>
-          </Button>
-        </div>
-      );
-    }
+    console.error("Dashboard Fetch Error:", error);
   }
 
-  const currentPlan = mealPlans?.[0];
+  // Find the first plan that actually has meals
+  const currentPlan = mealPlans?.find(p => p.meals && p.meals.length > 0) || mealPlans?.[0];
+  
+  console.log(`Dashboard loaded for user ${user.id}. Total plans: ${mealPlans?.length || 0}. Current plan meals: ${currentPlan?.meals?.length || 0}`);
   const totalMeals = currentPlan?.meals?.length || 0;
   const eatenMeals = currentPlan?.meals?.filter((m: Meal) => m.is_eaten).length || 0;
   const progress = totalMeals > 0 ? (eatenMeals / totalMeals) * 100 : 0;

@@ -4,6 +4,7 @@ import { generateContent } from '@/lib/ai'
 import { capitalize } from '@/lib/capitalize'
 import { clean } from '@/lib/jsoncleaner'
 import { createClient } from '@/utils/supabase/server'
+import { parseNumber } from '@/lib/utils'
 
 import { MealInsert } from "@/types/database";
 
@@ -65,7 +66,7 @@ export async function input(prevState: any, formData: FormData) {
 	Each meal should include:
 	- Name (appealing, specific)
 	- Brief description
-	- Calories, Protein (g), Carbs (g), Fats (g)
+	- Calories, Proteins (g), Carbs (g), Fats (g)
 	- Recipe (saved in 'recipe' key as an object containing 'ingredients' as an array of strings)
 	- Cooking instructions in Indonesian language (Bahasa Indonesia) (saved in 'instructions' key as an array of strings)
 
@@ -84,7 +85,7 @@ export async function input(prevState: any, formData: FormData) {
 	- carbs, fats, and proteins key should not end with _g
 	- Give average calories, proteins, carbs, and fats per day
 	- Data returned in json should only saved into two keys: 'days' (The meal plan) and 'average_daily_nutrition'
-	- All protein data should saved in 'proteins' key
+	- All protein data should saved in 'proteins' key (ALWAYS use plural 'proteins')
 	- breakfast, lunch, dinner, and snack should saved as object, not array
 	- breakfast, lunch, dinner, and snack should saved inside a 'meals' key
 	- Snack should save in 'snack' key without added 's'
@@ -163,10 +164,10 @@ export async function input(prevState: any, formData: FormData) {
 								meal_type: mealType as 'breakfast' | 'lunch' | 'dinner' | 'snack',
 								name: meal.name,
 								description: meal.description || "",
-								calories: meal.calories || 0,
-								proteins: meal.proteins || 0,
-								carbs: meal.carbs || 0,
-								fats: meal.fats || 0,
+								calories: parseNumber(meal.calories),
+								proteins: parseNumber(meal.proteins || meal.protein),
+								carbs: parseNumber(meal.carbs || meal.carb),
+								fats: parseNumber(meal.fats || meal.fat),
 								recipe: meal.recipe || {},
 								instructions: meal.instructions || []
 							})
