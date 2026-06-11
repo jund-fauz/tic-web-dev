@@ -17,13 +17,17 @@ export default function SyncLocalStorage() {
         const localData = JSON.parse(localDataStr);
         // If we have days and meals, let's sync
         if (localData.days && Array.isArray(localData.days) && localData.days.length > 0) {
+          console.log("Found local data to sync:", localData.days.length, "days");
           setSyncing(true);
           const result = await syncMealsFromLocal(localData);
           
           if (result.success) {
+            console.log("Sync successful, removing local data");
             // Remove from localStorage after successful sync
             localStorage.removeItem("meals");
             router.refresh();
+          } else {
+            console.error("Sync failed:", result.error);
           }
         }
       } catch (e) {

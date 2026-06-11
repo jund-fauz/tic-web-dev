@@ -21,7 +21,7 @@ import {
 import { Separator } from '@/components/ui/separator'
 import { ArrowLeft, Calendar, TrendingUp, Utensils } from 'lucide-react'
 import Link from 'next/link'
-import { redirect, usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { JSX, useEffect, useRef, useState } from 'react'
 import { useImmer } from 'use-immer'
 import { Spinner } from '@/components/ui/spinner'
@@ -33,18 +33,21 @@ import {
 	PaginationNext,
 	PaginationPrevious,
 } from '@/components/ui/pagination'
-import { regenerateMealAction, generateMealDetailsAction } from '../action'
+import { regenerateMealAction, generateMealDetailsAction, saveRegeneratedDayAction, saveSwappedMealAction } from '../action'
 import { clean } from '@/lib/jsoncleaner'
 import Cookies from 'js-cookie'
 import { createClient } from '@/utils/supabase/client'
 import { Meal, MealPlan } from '@/types/database'
+import { parseNumber } from '@/lib/utils'
 
 export default function Meals() {
 	const supabase = createClient()
+	const router = useRouter()
 	const [preferences, setPreferences] = useState<any>(undefined)
 	const [meals, updateMeals] = useImmer<any>(undefined)
 	const [average, setAverage] = useState<any>(undefined)
 	const [mealAlt, setMealAlt] = useState<any>(undefined)
+	const [planId, setPlanId] = useState<string | undefined>(undefined)
 	const day = Number(usePathname().replace('/meals/', ''))
 	const [baseDate, setBaseDate] = useState<Date | undefined>(undefined)
 	const [date, setDate] = useState<Date | undefined>(undefined)
@@ -130,18 +133,23 @@ export default function Meals() {
 
 							// Update meal_groceries table (upsert-like behavior)
 							for (const [category, items] of Object.entries(currentGroceries)) {
-								const { data: existingCat } = await supabase
+								const { data: existingCats, error: fetchError } = await supabase
 									.from('meal_groceries')
 									.select('id')
 									.eq('meal_plan_id', planId)
 									.eq('category', category)
-									.single()
+									.maybeSingle()
 								
-								if (existingCat) {
+								if (fetchError) {
+									console.error(`Error fetching category ${category}:`, fetchError)
+									continue
+								}
+
+								if (existingCats) {
 									await supabase
 										.from('meal_groceries')
 										.update({ items: items })
-										.eq('id', existingCat.id)
+										.eq('id', existingCats.id)
 								} else {
 									await supabase
 										.from('meal_groceries')
@@ -193,15 +201,16 @@ export default function Meals() {
 			const { data: { user } } = await supabase.auth.getUser()
 			
 			if (!user) {
-				redirect('/login')
+				router.push('/login')
 				return
 			}
 
 			// Fetch the latest meal plan from Supabase
 			const { data: mealPlans, error: planError } = await supabase
 				.from('meal_plans')
-				.select('*, meals(*)')
+				.select('id, week_start_date, meals!inner(*)')
 				.eq('user_id', user.id)
+				.eq('meals.day_number', day)
 				.order('created_at', { ascending: false })
 				.limit(1)
 
@@ -213,19 +222,28 @@ export default function Meals() {
 					const mealData = JSON.parse(savedMeals)
 					if (mealData.days && mealData.days[day - 1]) {
 						updateMeals(mealData.days[day - 1].meals)
-						setAverage(mealData.average_daily_nutrition)
+						
+						// Resilient average nutrition from localStorage
+						const avg = mealData.average_daily_nutrition || {}
+						setAverage({
+							calories: avg.calories || 0,
+							proteins: avg.proteins || avg.protein || 0,
+							carbs: avg.carbs || avg.carb || 0,
+							fats: avg.fats || avg.fat || 0
+						})
 					}
-				} else {
-					redirect('/form')
+					} else {
+					router.push('/form')
 				}
 			} else {
-				const plan = mealPlans[0] as MealPlan
-				const dayMeals = plan.meals?.filter(m => m.day_number === day)
+				const plan = mealPlans[0]
+				const dayMeals = plan.meals
+				setPlanId(plan.id)
 				
 				if (dayMeals && dayMeals.length > 0) {
 					// Transform Supabase meals back into the format the UI expects
 					const mealMap: any = {}
-					dayMeals.forEach(m => {
+					dayMeals.forEach((m: any) => {
 						mealMap[m.meal_type] = {
 							name: m.name,
 							description: m.description,
@@ -243,13 +261,18 @@ export default function Meals() {
 					const startDate = new Date(plan.week_start_date)
 					setBaseDate(startDate)
 					
-					// Calculate average daily nutrition from all meals in the plan
-					if (plan.meals && plan.meals.length > 0) {
-						const totals = plan.meals.reduce((acc, m) => ({
-							calories: acc.calories + (Number(m.calories) || 0),
-							proteins: acc.proteins + (Number(m.proteins) || 0),
-							carbs: acc.carbs + (Number(m.carbs) || 0),
-							fats: acc.fats + (Number(m.fats) || 0)
+					// Fetch only nutrition summary instead of all 28 meals
+					const { data: nutritionSummary } = await supabase
+						.from('meals')
+						.select('calories, proteins, carbs, fats')
+						.eq('meal_plan_id', plan.id)
+
+					if (nutritionSummary && nutritionSummary.length > 0) {
+						const totals = nutritionSummary.reduce((acc, m: any) => ({
+							calories: acc.calories + parseNumber(m.calories),
+							proteins: acc.proteins + parseNumber(m.proteins),
+							carbs: acc.carbs + parseNumber(m.carbs),
+							fats: acc.fats + parseNumber(m.fats)
 						}), { calories: 0, proteins: 0, carbs: 0, fats: 0 })
 
 						setAverage({
@@ -315,14 +338,40 @@ export default function Meals() {
 		)
 	}
 
-	const save = (params: any) => {
+	const save = async (params: { mealType: string; index: number }) => {
+		const newMeal = mealAlt.meals[params.index]
+		
+		if (planId) {
+			try {
+				const result = await saveSwappedMealAction(planId, day, params.mealType, newMeal)
+				if (!result.success) {
+					console.error('Failed to save swapped meal to database:', result.error)
+				}
+			} catch (err) {
+				console.error('Unexpected error saving swapped meal:', err)
+			}
+		}
+
 		updateMeals((prev: any) => {
-			prev[params.mealType] = mealAlt.meals[params.index]
+			return {
+				...prev,
+				[params.mealType]: newMeal,
+			}
 		})
-		const localMeals = JSON.parse(localStorage.getItem('meals') as string)
-		localMeals.days[day - 1].meals[params.mealType] =
-			mealAlt.meals[params.index]
-		localStorage.setItem('meals', JSON.stringify(localMeals))
+
+		const savedMealsStr = localStorage.getItem('meals')
+		if (savedMealsStr) {
+			try {
+				const localMeals = JSON.parse(savedMealsStr)
+				if (localMeals.days && localMeals.days[day - 1]) {
+					localMeals.days[day - 1].meals[params.mealType] = newMeal
+					localStorage.setItem('meals', JSON.stringify(localMeals))
+				}
+			} catch (err) {
+				console.error('Failed to update localStorage for swap:', err)
+			}
+		}
+
 		setOpen(false)
 	}
 
@@ -490,14 +539,18 @@ export default function Meals() {
 				if (!resultAction.success) throw new Error(resultAction.error)
 
 				const result = resultAction.data.meals
-				console.log(result)
-				updateMeals((prev: any) => {
-					;(prev.breakfast = result[0]),
-						(prev.lunch = result[1]),
-						(prev.dinner = result[2]),
-						(prev.snack = result[3])
-				})
-				setMealAlt(meals)
+				
+				// Keep current recipes and instructions if they exist, 
+				// or ensure we use the plural keys for consistency
+				const transformedMeals = {
+					breakfast: { ...result[0], proteins: result[0].proteins || result[0].protein || 0 },
+					lunch: { ...result[1], proteins: result[1].proteins || result[1].protein || 0 },
+					dinner: { ...result[2], proteins: result[2].proteins || result[2].protein || 0 },
+					snack: { ...result[3], proteins: result[3].proteins || result[3].protein || 0 }
+				}
+
+				setMealAlt(meals) // Backup current state for Cancel
+				updateMeals(transformedMeals)
 				setIsReg(true)
 			} catch (error) {
 				console.error('Failed to regenerate meal:', error)
@@ -508,10 +561,36 @@ export default function Meals() {
 		}
 	}
 
-	const saveReg = () => {
-		const localMeals = JSON.parse(localStorage.getItem('meals') as string)
-		localMeals.days[day - 1].meals = meals
-		localStorage.setItem('meals', JSON.stringify(localMeals))
+	const saveReg = async () => {
+		console.log('Starting save process for regenerated day...', { planId, day })
+		if (planId) {
+			try {
+				const result = await saveRegeneratedDayAction(planId, day, meals)
+				if (!result.success) {
+					console.error('Database save failed:', result.error)
+					alert('Failed to save regenerated plan to database.')
+					return
+				}
+				console.log('Successfully saved to Supabase.')
+			} catch (err) {
+				console.error('Unexpected error during database save:', err)
+				alert('An unexpected error occurred while saving.')
+				return
+			}
+		} else {
+			console.warn('No planId found, skipping database save.')
+		}
+
+		const savedMeals = localStorage.getItem('meals')
+		if (savedMeals) {
+			const localMeals = JSON.parse(savedMeals)
+			if (localMeals.days && localMeals.days[day - 1]) {
+				localMeals.days[day - 1].meals = meals
+				localStorage.setItem('meals', JSON.stringify(localMeals))
+				console.log('Successfully updated localStorage.')
+			}
+		}
+		
 		setMealAlt(undefined)
 		setIsReg(false)
 	}
@@ -719,7 +798,7 @@ export default function Meals() {
 													<ul className='space-y-1.5'>
 														{meal.recipe.ingredients.map((item: string, i: number) => (
 															<li key={i} className='flex items-start gap-2 text-gray-700 text-sm'>
-																<span className='mt-1.5 w-1.5 h-1.5 bg-emerald-400 rounded-full flex-shrink-0' />
+																<span className='mt-1.5 w-1.5 h-1.5 bg-emerald-400 rounded-full shrink-0' />
 																<span>{item}</span>
 															</li>
 														))}
@@ -740,7 +819,7 @@ export default function Meals() {
 													<ul className='space-y-3'>
 														{meal.instructions.map((step: string, i: number) => (
 															<li key={i} className='flex gap-3 text-gray-700 text-sm'>
-																<span className='flex-shrink-0 w-5 h-5 bg-emerald-50 text-emerald-600 rounded-full flex items-center justify-center text-xs font-bold'>
+																<span className='shrink-0 w-5 h-5 bg-emerald-50 text-emerald-600 rounded-full flex items-center justify-center text-xs font-bold'>
 																	{i + 1}
 																</span>
 																<span>{step}</span>
@@ -814,25 +893,25 @@ export default function Meals() {
 				<div className='grid grid-cols-2 md:grid-cols-4 gap-6'>
 					<div className='text-center p-4 bg-emerald-50 rounded-lg'>
 						<div className='text-emerald-700 mb-1'>
-							{average && average.calories}
+							{average ? (average.calories || 0) : 0}
 						</div>
 						<div className='text-gray-600'>Total Calories</div>
 					</div>
 					<div className='text-center p-4 bg-blue-50 rounded-lg'>
 						<div className='text-blue-700 mb-1'>
-							{average && average.proteins}g
+							{average ? (average.proteins || 0) : 0}g
 						</div>
 						<div className='text-gray-600'>Total Protein</div>
 					</div>
 					<div className='text-center p-4 bg-amber-50 rounded-lg'>
 						<div className='text-amber-700 mb-1'>
-							{average && average.carbs}g
+							{average ? (average.carbs || 0) : 0}g
 						</div>
 						<div className='text-gray-600'>Total Carbs</div>
 					</div>
 					<div className='text-center p-4 bg-purple-50 rounded-lg'>
 						<div className='text-purple-700 mb-1'>
-							{average && average.fats}g
+							{average ? (average.fats || 0) : 0}g
 						</div>
 						<div className='text-gray-600'>Total Fat</div>
 					</div>
